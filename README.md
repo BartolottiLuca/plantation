@@ -1,2 +1,2 @@
 # plantation
-plan app
+plant app
