@@ -1,3 +1,2 @@
-// Package store is the Postgres layer: pool, migrations, repositories.
-// C02 fills this in.
+// Package store is the Postgres layer: pool, embedded migrations, repositories.
 package store
