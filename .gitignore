@@ -1,0 +1,19 @@
+/plantation
+/bin/
+*.exe
+*.test
+*.out
+coverage.out
+
+.env
+.env.*
+
+# Cluster-supplied values — never the real file
+values.local.yaml
+secrets.yaml
+
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
