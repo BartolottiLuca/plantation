@@ -23,6 +23,7 @@ import (
 	"github.com/BartolottiLuca/plantation/internal/climate/tado"
 	"github.com/BartolottiLuca/plantation/internal/config"
 	"github.com/BartolottiLuca/plantation/internal/notify"
+	"github.com/BartolottiLuca/plantation/internal/scheduler"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/BartolottiLuca/plantation/internal/weather"
 	"github.com/BartolottiLuca/plantation/internal/web"
@@ -157,9 +158,9 @@ func serve() int {
 		}
 		log.Info("species catalog upserted", "count", len(species))
 
-		// Mount UI before flipping /readyz so a ready pod already has routes.
-		// ServeMux allows Handle after Serve starts (Go 1.22+).
-		registerUI(mux, pool, cfg)
+		// Mount UI and start the scheduler before flipping /readyz so a
+		// ready pod already has routes and the tick is running.
+		startRuntime(ctx, mux, pool, cfg, log)
 		db.set(pool)
 		log.Info("database ready")
 	}()
@@ -197,28 +198,102 @@ func serve() int {
 	return 0
 }
 
-func registerUI(mux *http.ServeMux, pool *pgxpool.Pool, cfg config.Config) {
+func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, cfg config.Config, log *slog.Logger) {
 	clk := wallClock{}
+	plantRepo := store.NewPlantRepo(pool)
+	eventRepo := store.NewCareEventRepo(pool)
+	climateRepo := store.NewClimateRepo(pool)
+	tokenRepo := store.NewTadoTokenRepo(pool)
+
+	var weatherSvc *weather.Service
+	var weatherAge scheduler.WeatherAge
+	var locationKey string
+	if cfg.WeatherEnabled {
+		repo := store.NewWeatherRepo(pool)
+		weatherSvc = weather.NewService(weather.NewClient(cfg.Timezone), repo, cfg.Latitude, cfg.Longitude, clk, log)
+		weatherAge = repo
+		locationKey = fmt.Sprintf("%.3f,%.3f", cfg.Latitude, cfg.Longitude)
+	}
+
+	var auth *tado.Client
+	var sampler *tado.Sampler
+	if cfg.TadoEnabled {
+		auth = tado.NewClient(tokenRepo, tado.WithClock(clk))
+		sampler = tado.NewSampler(auth, climateRepo, plantRepo)
+	}
+
+	var notifier scheduler.Notifier = &notify.NoopNotifier{}
+	var sweeper scheduler.Sweeper
+	if cfg.DiscordWebhook != "" {
+		outbox := notify.NewOutboxNotifier(store.NewNotificationRepo(pool), cfg.DiscordWebhook, notify.WithNow(clk.Now))
+		notifier = outbox
+		sweeper = outbox
+	}
+
+	loop := scheduler.New(scheduler.Loop{
+		Clock:          clk,
+		Location:       cfg.Location,
+		DigestHour:     cfg.DigestHour,
+		BaseURL:        cfg.BaseURL,
+		LocationKey:    locationKey,
+		WeatherEnabled: cfg.WeatherEnabled,
+		TadoEnabled:    cfg.TadoEnabled,
+		Lock:           scheduler.PoolLocker{Pool: pool},
+		Weather:        weatherSource(weatherSvc),
+		WAge:           weatherAge,
+		Sampler:        asSampler(sampler),
+		Token:          tokenRepo,
+		Auth:           asAuth(auth),
+		Plants:         plantRepo,
+		Events:         eventRepo,
+		Tasks:          store.NewCareTaskRepo(pool),
+		Climate:        climateRepo,
+		Notify:         notifier,
+		Sweep:          sweeper,
+		Log:            log,
+	})
+
 	ui := web.NewServer(web.Server{
-		Plants:     store.NewPlantRepo(pool),
+		Plants:     plantRepo,
 		Species:    store.NewSpeciesRepo(pool),
-		Events:     store.NewCareEventRepo(pool),
+		Events:     eventRepo,
 		Clock:      clk,
 		Location:   cfg.Location,
 		WriteToken: cfg.WriteToken,
-		Rooms:      roomLister(cfg, pool, clk),
-		// Env and LastDigestFailed stay nil until C09 can build a real
-		// series and query the last digest row.
+		Rooms:      roomLister(sampler),
+		Env:        loop.PlantEnv,
 	})
 	ui.Register(mux)
+
+	go loop.Run(ctx)
 }
 
-func roomLister(cfg config.Config, pool *pgxpool.Pool, clk wallClock) web.RoomLister {
-	if !cfg.TadoEnabled {
+func weatherSource(svc *weather.Service) scheduler.WeatherSource {
+	if svc == nil {
 		return nil
 	}
-	auth := tado.NewClient(store.NewTadoTokenRepo(pool), tado.WithClock(clk))
-	return tado.NewSampler(auth, store.NewClimateRepo(pool), store.NewPlantRepo(pool))
+	return svc
+}
+
+func roomLister(s *tado.Sampler) web.RoomLister {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func asSampler(s *tado.Sampler) scheduler.Sampler {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func asAuth(c *tado.Client) scheduler.TokenRefresher {
+	if c == nil {
+		return nil
+	}
+	return c
 }
 
 // backfillWeather is a one-off wider fetch (default 30 days of history vs.
