@@ -1,0 +1,24 @@
+common_name: Snake plant
+scientific_name: Sansevieria trifasciata
+placement: indoor
+kc: 0.3
+substrate: cactus
+mad: 0.7
+base_interval_days: 10
+min_interval_days: 5
+max_interval_days: 30
+dormant_months: [11, 12, 1, 2]
+dormancy_factor: 0.4
+min_temp_c: 10
+frost_tender: true
+fertilize:
+  interval_days: 60
+  active_months: [4, 5, 6, 7, 8, 9]
+repot:
+  interval_days: 1095
+  active_months: []
+care_advice: >-
+  Tolerates low light and irregular attention; the one reliable way to kill it
+  is a substrate that never dries out, so let it go bone-dry between
+  waterings and err on the side of skipping one.
+retired: false

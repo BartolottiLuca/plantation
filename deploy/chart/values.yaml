@@ -1,0 +1,108 @@
+# Plantation Helm chart — default values.
+#
+# Everything marked CHANGEME below MUST be overridden on the cluster before the
+# first install, via `helm install -f <cluster-values.yaml>` or `--set`. Never edit
+# this file with real hostnames, coordinates, or secret values — see
+# deploy/README.md and AGENTS.md ("Never commit"). Secrets are always referenced by
+# name/key, pointing at a Kubernetes Secret created out-of-band on the cluster.
+
+# MUST stay 1. SPEC.md §9/§14: the scheduler holds a Postgres advisory lock, but
+# nothing wants two schedulers racing Tado's rotating refresh token or double-firing
+# the Discord digest. deployment.yaml refuses to render above 1.
+replicaCount: 1
+
+image:
+  # CHANGEME — Docker Hub username/repo, e.g. "janedoe/plantation".
+  repository: CHANGEME/plantation
+  # C14's write-back workflow rewrites this tag in place with `yq`. Keep it a plain
+  # quoted scalar (never a templated expression) so that edit stays a one-line diff.
+  tag: "sha-0000000"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+config:
+  # CHANGEME — IANA timezone, e.g. "Europe/London" (PLANTATION_TZ). Required.
+  tz: "CHANGEME-set-an-IANA-timezone"
+  # CHANGEME — public base URL used for Discord deep links (PLANTATION_BASE_URL).
+  # Required. Cloudflare Access must sit in front of whatever this resolves to —
+  # the app has no authentication of its own (SPEC.md §14).
+  baseURL: "https://CHANGEME.example.invalid"
+  # 0-23, local time (PLANTATION_DIGEST_HOUR).
+  digestHour: 9
+  # CHANGEME — required only when weatherEnabled is true (PLANTATION_LATITUDE /
+  # PLANTATION_LONGITUDE). Left null deliberately: "0,0" is a real ocean point and
+  # a plausible-looking accident, not an obvious placeholder. deployment.yaml fails
+  # the render if weatherEnabled is true and either is still null.
+  latitude: null
+  longitude: null
+  weatherEnabled: true
+  tadoEnabled: true
+  logLevel: info
+  httpAddr: ":8080"
+
+# Discord incoming webhook URL. Never inline in values — create the Secret
+# out-of-band, e.g.:
+#   kubectl create secret generic plantation-discord \
+#     --from-literal=webhookUrl=https://discord.com/api/webhooks/...
+# Empty existingSecretName disables Discord (PLANTATION_DISCORD_WEBHOOK_URL unset
+# wires NoopNotifier, SPEC.md §12).
+discord:
+  existingSecretName: ""
+  existingSecretKey: "webhookUrl"
+
+# Optional bearer token required on POST routes (PLANTATION_WRITE_TOKEN). Same
+# existingSecret pattern as discord above; empty existingSecretName disables it.
+writeToken:
+  existingSecretName: ""
+  existingSecretKey: "writeToken"
+
+ingress:
+  enabled: false
+  className: ""
+  # CHANGEME — required when ingress.enabled is true. A Cloudflare Tunnel may also
+  # target the Service directly, in which case leave ingress disabled entirely.
+  host: "CHANGEME.example.invalid"
+  tls: []
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+# CloudNativePG-backed database. Disable and fill in externalDatabase below to
+# point at a Postgres you manage yourself instead.
+postgresql:
+  enabled: true
+  instances: 1
+  storageSize: 5Gi
+  storageClassName: ""
+
+# Used only when postgresql.enabled is false. Must name a Secret already present
+# on the cluster containing a full PLANTATION_DATABASE_URL-compatible DSN under
+# the given key.
+externalDatabase:
+  existingSecretName: ""
+  existingSecretKey: "uri"
+
+# pg_dump CronJob against the CNPG `-rw` service. Only meaningful when
+# postgresql.enabled is true.
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  retentionDays: 14
+  storageSize: 5Gi
+  storageClassName: ""
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

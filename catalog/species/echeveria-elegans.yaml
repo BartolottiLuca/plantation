@@ -1,0 +1,24 @@
+common_name: Mexican snowball
+scientific_name: Echeveria elegans
+placement: indoor
+kc: 0.25
+substrate: cactus
+mad: 0.8
+base_interval_days: 14
+min_interval_days: 7
+max_interval_days: 45
+dormant_months: [11, 12, 1, 2]
+dormancy_factor: 0.4
+min_temp_c: 5
+frost_tender: true
+fertilize:
+  interval_days: 60
+  active_months: [4, 5, 6, 7, 8]
+repot:
+  interval_days: 730
+  active_months: []
+care_advice: >-
+  Needs the brightest windowsill available and a fast-draining gritty mix;
+  water thoroughly, then let it dry completely — a mushy, translucent rosette
+  is root rot, not thirst.
+retired: false

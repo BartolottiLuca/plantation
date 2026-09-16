@@ -1,0 +1,79 @@
+{{- if .Values.backup.enabled }}
+{{/*
+pg_dump against the CNPG "<release>-rw" Service (writable primary), onto a PVC.
+Only meaningful when postgresql.enabled is also true — this chart does not know
+how to reach an externally-managed database for backup purposes.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "plantation.fullname" . }}-backup
+  labels:
+    {{- include "plantation.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.backup.storageClassName }}
+  storageClassName: {{ .Values.backup.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.storageSize }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "plantation.fullname" . }}-backup
+  labels:
+    {{- include "plantation.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "plantation.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+          containers:
+            - name: pg-dump
+              image: "postgres:17"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: PGHOST
+                  value: "{{ .Release.Name }}-rw"
+                - name: PGDATABASE
+                  value: "plantation"
+                - name: PGUSER
+                  value: "plantation"
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Release.Name }}-app
+                      key: password
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  ts=$(date +%Y%m%d-%H%M%S)
+                  pg_dump --no-owner --format=custom --file="/backup/plantation-${ts}.dump"
+                  # Retention: prune dumps older than backup.retentionDays ({{ .Values.backup.retentionDays }}).
+                  find /backup -name 'plantation-*.dump' -mtime +{{ .Values.backup.retentionDays }} -delete
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ include "plantation.fullname" . }}-backup
+{{- end }}

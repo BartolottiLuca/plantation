@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "plantation.fullname" . }}
+  labels:
+    {{- include "plantation.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # service.port (default 80) forwards to the container's PLANTATION_HTTP_ADDR
+    # port (8080, hardcoded here to match the Dockerfile/health.go default).
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "plantation.selectorLabels" . | nindent 4 }}

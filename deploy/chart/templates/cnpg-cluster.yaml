@@ -1,0 +1,29 @@
+{{- if .Values.postgresql.enabled }}
+{{/*
+CloudNativePG Cluster. Generates a "{{ .Release.Name }}-app" Secret (key "uri")
+that the Deployment consumes as PLANTATION_DATABASE_URL, and a
+"{{ .Release.Name }}-rw" Service that the backup CronJob targets (SPEC.md §5).
+Named after the release (not the chart fullname) so those generated names are
+predictable from `helm install <release>`.
+*/}}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "plantation.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgresql.instances }}
+  bootstrap:
+    initdb:
+      database: plantation
+      owner: plantation
+  storage:
+    size: {{ .Values.postgresql.storageSize }}
+    {{- if .Values.postgresql.storageClassName }}
+    storageClass: {{ .Values.postgresql.storageClassName }}
+    {{- end }}
+  postgresql:
+    parameters:
+      max_connections: "100"
+{{- end }}

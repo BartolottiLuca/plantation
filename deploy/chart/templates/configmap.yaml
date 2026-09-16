@@ -1,0 +1,22 @@
+{{/*
+Non-secret configuration only. The Discord webhook and write-token secrets are
+wired via secretKeyRef in the Deployment, never routed through here.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "plantation.fullname" . }}
+  labels:
+    {{- include "plantation.labels" . | nindent 4 }}
+data:
+  PLANTATION_HTTP_ADDR: {{ .Values.config.httpAddr | quote }}
+  PLANTATION_TZ: {{ .Values.config.tz | quote }}
+  PLANTATION_BASE_URL: {{ .Values.config.baseURL | quote }}
+  PLANTATION_DIGEST_HOUR: {{ .Values.config.digestHour | quote }}
+  PLANTATION_WEATHER_ENABLED: {{ .Values.config.weatherEnabled | quote }}
+  PLANTATION_TADO_ENABLED: {{ .Values.config.tadoEnabled | quote }}
+  PLANTATION_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  {{- if .Values.config.weatherEnabled }}
+  PLANTATION_LATITUDE: {{ .Values.config.latitude | quote }}
+  PLANTATION_LONGITUDE: {{ .Values.config.longitude | quote }}
+  {{- end }}

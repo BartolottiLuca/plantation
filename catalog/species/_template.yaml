@@ -1,0 +1,100 @@
+# Template for a new species. Copy this file to catalog/species/<slug>.yaml,
+# where <slug> is the scientific name in kebab-case (e.g. monstera-deliciosa)
+# and IS the filename — the loader derives the slug from the filename, never
+# from a field in this file. The slug is a permanent identity: renaming it
+# orphans every plant that references it.
+#
+# This file is never loaded as a real species: the loader skips any filename
+# starting with "_" (see internal/catalog). Unknown fields are a hard error
+# (strict YAML decoding), so delete every comment-only line below once you've
+# picked a real value — do not leave placeholder text in a committed species.
+#
+# Every constant below is explained in SPEC.md §7.2. Pick the closest
+# archetype rather than inventing a number; the physics-consistency check in
+# internal/catalog will reject a base_interval_days that the water-balance
+# model can't back up.
+
+# Common name shown in the UI. Free text, required (non-empty).
+common_name: ""
+
+# Binomial scientific name, required (non-empty). This is also where the slug
+# comes from (kebab-cased), but the field itself is just documentation — it
+# is not parsed back into the slug.
+scientific_name: ""
+
+# Where this species usually lives. One of: indoor, outdoor.
+# A plant of this species may still override placement at the plant level;
+# this is just the default the picker suggests.
+placement: indoor
+
+# Crop coefficient, unitless, range [0.1, 1.5]. Governs how fast the reservoir
+# empties: ETc = Kc × f_exposure × f_dormancy × ET0. Archetypes (SPEC §7.2):
+#   succulent/cactus            ~0.25
+#   typical foliage houseplant  ~0.7
+#   thirsty (basil, tomato, hydrangea, calathea) ~1.1
+kc: 0.7
+
+# Growing medium, determines the water-holding fraction θ_aw. One of:
+# peat (standard potting mix, θ .30), cactus (gritty/succulent mix, θ .15),
+# coir (moisture-retentive, θ .35).
+substrate: peat
+
+# Management allowed depletion, unitless, range [0.2, 0.9]: the plant is due
+# when the deficit reaches this fraction of pot capacity. Archetypes:
+# default 0.5, succulents 0.8 (tolerate a near-empty reservoir),
+# ferns/moisture-lovers 0.3 (must not dry out).
+mad: 0.5
+
+# Fallback interval in days used when there is no usable weather/Tado data,
+# and the number the physics-consistency check validates against. Must be
+# strictly between min_interval_days and max_interval_days, and within 40% of
+# what care.ScheduleWater produces at ET0=3mm/day in an 18cm pot for these
+# Kc/MAD/substrate values — compute it, don't guess it.
+base_interval_days: 7
+
+# Hard floor on the computed interval, days, >= 1 and < base_interval_days.
+min_interval_days: 3
+
+# Hard ceiling on the computed interval, days, > base_interval_days.
+max_interval_days: 21
+
+# Months (1-12) during which f_dormancy applies to ETc. Leave empty for an
+# outdoor plant — outdoor dormancy already arrives for free through a low
+# winter ET0. Set it for an indoor plant, whose room stays warm all year.
+dormant_months: []
+
+# Multiplier applied to ETc during dormant_months, range [0.2, 1.0], default
+# 1.0 (no effect) when omitted. ~0.5 is typical for a dormant houseplant.
+dormancy_factor: 1.0
+
+# Degrees C below which this plant needs frost protection (outdoor) or is at
+# risk (indoor near a cold window). Drives the frost alert in SPEC §9.
+min_temp_c: 10
+
+# Whether a forecast tmin at or below min_temp_c for an outdoor plant should
+# raise a frost alert. true/false.
+frost_tender: true
+
+# Optional fixed-interval tasks: a plain interval_days plus an optional
+# active_months list (empty means all year). These are not environment-
+# adjusted — see SPEC §7.7. Omit the whole key (comment it out or delete it)
+# for a species that doesn't need the task.
+prune:
+  interval_days: 90
+  active_months: [3, 4, 5, 6]
+
+fertilize:
+  interval_days: 30
+  active_months: [3, 4, 5, 6, 7, 8, 9]
+
+repot:
+  interval_days: 730
+  active_months: []
+
+# One or two sentences of real, specific horticultural advice. This is what
+# the UI shows on the plant page — not filler.
+care_advice: ""
+
+# Set true only when retiring a species that plants still reference; never
+# delete such a species from the catalog. Omit for a new species.
+retired: false

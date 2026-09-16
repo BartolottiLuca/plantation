@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -17,8 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/BartolottiLuca/plantation/internal/catalog"
 	"github.com/BartolottiLuca/plantation/internal/config"
+	"github.com/BartolottiLuca/plantation/internal/notify"
 	"github.com/BartolottiLuca/plantation/internal/store"
+	"github.com/BartolottiLuca/plantation/internal/weather"
 	"github.com/BartolottiLuca/plantation/internal/web"
 )
 
@@ -55,12 +59,16 @@ func main() {
 func run(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: plantation <command>")
-		fmt.Fprintln(os.Stderr, "commands: serve")
+		fmt.Fprintln(os.Stderr, "commands: serve, backfill-weather, send-test-digest")
 		return 2
 	}
 	switch args[0] {
 	case "serve":
 		return serve()
+	case "backfill-weather":
+		return backfillWeather(args[1:])
+	case "send-test-digest":
+		return sendTestDigest()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", args[0])
 		return 2
@@ -119,6 +127,25 @@ func serve() int {
 			pool.Close()
 			return
 		}
+
+		// Species catalog is rebuilt from catalog/species/*.yaml at every
+		// boot (AGENTS.md: "no migration, no manual SQL" for adding a
+		// species) — a bad YAML file must not bring up a stale catalog
+		// silently, so a load or upsert failure is fatal, same as a failed
+		// migration.
+		species, err := catalog.Load()
+		if err != nil {
+			log.Error("loading species catalog", "err", err)
+			pool.Close()
+			return
+		}
+		if err := catalog.Upsert(ctx, store.NewSpeciesRepo(pool), species); err != nil {
+			log.Error("upserting species catalog", "err", err)
+			pool.Close()
+			return
+		}
+		log.Info("species catalog upserted", "count", len(species))
+
 		db.set(pool)
 		log.Info("database ready")
 	}()
@@ -153,5 +180,101 @@ func serve() int {
 		p.Close()
 	}
 	log.Info("plantation stopped")
+	return 0
+}
+
+// backfillWeather is a one-off wider fetch (default 30 days of history vs.
+// Refresh's fixed 7, per SPEC.md §10.1) for recovering the cache after an
+// outage longer than a week. It opens and migrates its own pool rather than
+// requiring serve to be running, since it is meant to be run by hand.
+func backfillWeather(args []string) int {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	if !cfg.WeatherEnabled {
+		fmt.Fprintln(os.Stderr, "backfill-weather: weather is not enabled "+
+			"(set PLANTATION_WEATHER_ENABLED=true with PLANTATION_LATITUDE/PLANTATION_LONGITUDE)")
+		return 1
+	}
+
+	wideDays := 30
+	if len(args) > 0 {
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n <= 0 {
+			fmt.Fprintf(os.Stderr, "backfill-weather: days must be a positive integer, got %q\n", args[0])
+			return 2
+		}
+		wideDays = n
+	}
+
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	pool, err := store.Open(ctx, cfg.DatabaseURL, log)
+	if err != nil {
+		log.Error("database open", "err", err)
+		return 1
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		log.Error("migrate", "err", err)
+		return 1
+	}
+
+	client := weather.NewClient(cfg.Timezone)
+	repo := store.NewWeatherRepo(pool)
+	if err := weather.RunBackfill(ctx, client, repo, cfg.Latitude, cfg.Longitude, wideDays); err != nil {
+		log.Error("backfill weather", "err", err)
+		return 1
+	}
+	log.Info("weather backfill complete", "days", wideDays)
+	return 0
+}
+
+// sendTestDigest sends a single synthetic digest through the real Discord
+// outbox (SendOnce's claim-then-send protocol, per SPEC.md §8), so an
+// operator can verify PLANTATION_DISCORD_WEBHOOK_URL end-to-end. It needs a
+// live pool because OutboxNotifier's claim row lives in Postgres, same as
+// the eventual scheduled sends.
+func sendTestDigest() int {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	if cfg.DiscordWebhook == "" {
+		fmt.Fprintln(os.Stderr, "send-test-digest: PLANTATION_DISCORD_WEBHOOK_URL is not set")
+		return 1
+	}
+
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := store.Open(ctx, cfg.DatabaseURL, log)
+	if err != nil {
+		log.Error("database open", "err", err)
+		return 1
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		log.Error("migrate", "err", err)
+		return 1
+	}
+
+	notifier := notify.NewOutboxNotifier(store.NewNotificationRepo(pool), cfg.DiscordWebhook)
+	// Pass time.Now explicitly rather than relying on RunSendTestDigest's
+	// nil-fallback, so the clock read stays visibly owned by cmd (AGENTS.md:
+	// "no time.Now() outside cmd").
+	if err := notify.RunSendTestDigest(ctx, notifier, cfg.BaseURL, time.Now); err != nil {
+		log.Error("send test digest", "err", err)
+		return 1
+	}
+	log.Info("test digest sent")
 	return 0
 }

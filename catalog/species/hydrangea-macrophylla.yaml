@@ -1,0 +1,26 @@
+common_name: Bigleaf hydrangea
+scientific_name: Hydrangea macrophylla
+placement: outdoor
+kc: 1.1
+substrate: peat
+mad: 0.5
+base_interval_days: 4
+min_interval_days: 1
+max_interval_days: 10
+dormant_months: []
+min_temp_c: -5
+frost_tender: true
+prune:
+  interval_days: 365
+  active_months: [8, 9]
+fertilize:
+  interval_days: 30
+  active_months: [3, 4, 5, 6, 7]
+repot:
+  interval_days: 730
+  active_months: []
+care_advice: >-
+  Wants consistently moist soil, especially in summer heat when it wilts
+  visibly within a day of drying out; a late spring frost after the flower
+  buds have broken dormancy can ruin the whole season's blooms.
+retired: false

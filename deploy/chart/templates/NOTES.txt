@@ -1,0 +1,15 @@
+Plantation has been installed (release {{ .Release.Name }} in namespace {{ .Release.Namespace }}).
+
+Before it is usable:
+
+1. If Tado integration is enabled (config.tadoEnabled, default true), visit
+   {{ .Values.config.baseURL }}/settings/tado to link a Tado account via the
+   device flow. Indoor plants schedule on a dumb timer until this is done.
+
+2. Confirm the two cluster prerequisites are in place (see deploy/README.md):
+     - the CloudNativePG operator is installed, if postgresql.enabled is true;
+     - Cloudflare Access sits in front of the tunnel/ingress reaching this
+       Service — the app has no authentication of its own (SPEC.md §14).
+
+Check rollout status:
+  kubectl -n {{ .Release.Namespace }} get pods -l {{ include "plantation.selectorLabels" . }}

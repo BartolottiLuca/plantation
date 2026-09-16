@@ -1,0 +1,23 @@
+common_name: English lavender
+scientific_name: Lavandula angustifolia
+placement: outdoor
+kc: 0.4
+substrate: cactus
+mad: 0.7
+base_interval_days: 8
+min_interval_days: 4
+max_interval_days: 21
+dormant_months: []
+min_temp_c: -15
+frost_tender: false
+prune:
+  interval_days: 365
+  active_months: [8, 9]
+repot:
+  interval_days: 1095
+  active_months: []
+care_advice: >-
+  Prefers poor, sharply-draining soil and full sun; rich compost or a
+  waterlogged pot kills it faster than a dry summer ever will. Trim back hard
+  right after flowering to stop it going woody and leggy.
+retired: false

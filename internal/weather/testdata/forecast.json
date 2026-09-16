@@ -1,0 +1,39 @@
+{
+  "latitude": 51.5,
+  "longitude": -0.12,
+  "generationtime_ms": 0.42,
+  "utc_offset_seconds": 3600,
+  "timezone": "Europe/London",
+  "timezone_abbreviation": "GMT+1",
+  "elevation": 25.0,
+  "daily_units": {
+    "time": "iso8601",
+    "et0_fao_evapotranspiration": "mm",
+    "precipitation_sum": "mm",
+    "precipitation_probability_max": "%",
+    "temperature_2m_min": "\u00b0C",
+    "temperature_2m_max": "\u00b0C"
+  },
+  "daily": {
+    "time": [
+      "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12",
+      "2026-09-13", "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17",
+      "2026-09-18", "2026-09-19", "2026-09-20"
+    ],
+    "et0_fao_evapotranspiration": [
+      2.1, 2.3, 1.9, 2.0, 2.2, 2.4, 2.1, 1.8, 1.6, 1.7, 1.5, 1.4, null
+    ],
+    "precipitation_sum": [
+      0.0, 1.2, 0.0, 0.4, 0.0, 0.0, 3.1, 0.0, 0.0, 2.0, 0.0, 0.0, null
+    ],
+    "precipitation_probability_max": [
+      5, 40, 0, 20, 10, 5, 80, 15, 10, null, 5, 5, null
+    ],
+    "temperature_2m_min": [
+      12.1, 11.8, 13.0, 12.5, 12.0, 11.5, 13.2, 12.8, 12.1, 12.6, 12.9, 12.4, null
+    ],
+    "temperature_2m_max": [
+      19.4, 18.9, 20.1, 19.8, 19.0, 18.5, 17.9, 19.2, 18.7, 19.5, 19.9, 19.1, null
+    ]
+  }
+}

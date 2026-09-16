@@ -1,0 +1,27 @@
+# ArgoCD Application for Plantation. The repoURL below is an obvious placeholder —
+# per AGENTS.md ("Never commit"), the real git remote is never committed to this
+# repo; fill it in only in the cluster's own copy of this manifest (e.g. via
+# kustomize/sops on the GitOps side), never here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plantation
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "CHANGEME-git-repo-url" # e.g. https://github.com/OWNER/plantation.git
+    targetRevision: main
+    path: deploy/chart
+    # helm:
+    #   valueFiles:
+    #     - values-production.yaml  # supply cluster-specific overrides out-of-band
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: plantation
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

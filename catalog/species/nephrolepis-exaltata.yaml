@@ -1,0 +1,24 @@
+common_name: Boston fern
+scientific_name: Nephrolepis exaltata
+placement: indoor
+kc: 1.0
+substrate: coir
+mad: 0.3
+base_interval_days: 3
+min_interval_days: 1
+max_interval_days: 10
+dormant_months: [12, 1, 2]
+dormancy_factor: 0.6
+min_temp_c: 12
+frost_tender: true
+fertilize:
+  interval_days: 30
+  active_months: [4, 5, 6, 7, 8, 9]
+repot:
+  interval_days: 365
+  active_months: []
+care_advice: >-
+  Wants a constantly moist substrate and humid air, not just watering on a
+  schedule; crispy brown frond tips mean the air is too dry, not that it
+  needs more water.
+retired: false

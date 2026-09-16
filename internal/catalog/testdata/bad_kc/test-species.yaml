@@ -1,0 +1,13 @@
+common_name: Test Plant
+scientific_name: Testus plantus
+placement: indoor
+kc: 2.4
+substrate: peat
+mad: 0.5
+base_interval_days: 6
+min_interval_days: 3
+max_interval_days: 21
+min_temp_c: 10
+frost_tender: false
+care_advice: Test advice, real enough to compile.
+retired: false
