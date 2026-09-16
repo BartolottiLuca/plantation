@@ -1,0 +1,22 @@
+{{define "title"}}Plants · Plantation{{end}}
+{{define "content"}}
+<h1>Plants</h1>
+{{if not .Plants}}
+<p class="empty">No plants yet. <a href="/plants/new">Add a plant</a>.</p>
+{{else}}
+<ul class="plant-list">
+  {{range .Plants}}
+  <li>
+    <a href="/plants/{{.ID}}">
+      <strong>{{.Name}}</strong>
+      <span class="meta">{{.SpeciesName}}{{if .Place}} · {{.Place}}{{end}} · {{.Location}}</span>
+      <span class="status status-tag">{{.Status}}</span>
+      {{if .Summary}}<span class="summary">{{.Summary}}</span>{{end}}
+      {{if .Retired}}<span class="warn">Retired species</span>{{end}}
+    </a>
+  </li>
+  {{end}}
+</ul>
+{{end}}
+<p><a class="btn" href="/plants/new">Add a plant</a></p>
+{{end}}

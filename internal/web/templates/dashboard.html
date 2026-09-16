@@ -1,0 +1,28 @@
+{{define "title"}}Dashboard · Plantation{{end}}
+{{define "content"}}
+<h1>Dashboard</h1>
+{{if .NoPlants}}
+<p class="empty">No plants yet. <a href="/plants/new">Add a plant</a> to start tracking watering and care.</p>
+{{else if .Quiet}}
+<p class="empty">Nothing due in the next 7 days.</p>
+{{else}}
+  {{if .Overdue}}
+  <section aria-labelledby="overdue-heading">
+    <h2 id="overdue-heading">Overdue</h2>
+    {{range .Overdue}}{{template "task-row" .}}{{end}}
+  </section>
+  {{end}}
+  {{if .DueToday}}
+  <section aria-labelledby="today-heading">
+    <h2 id="today-heading">Due today</h2>
+    {{range .DueToday}}{{template "task-row" .}}{{end}}
+  </section>
+  {{end}}
+  {{if .Upcoming}}
+  <section aria-labelledby="upcoming-heading">
+    <h2 id="upcoming-heading">Coming up</h2>
+    {{range .Upcoming}}{{template "task-row" .}}{{end}}
+  </section>
+  {{end}}
+{{end}}
+{{end}}

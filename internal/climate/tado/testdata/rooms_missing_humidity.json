@@ -1,0 +1,19 @@
+{
+  "rooms": [
+    {
+      "id": 3,
+      "name": "Hall",
+      "sensor": {
+        "temperature": { "celsius": 18.6 }
+      }
+    },
+    {
+      "id": 1,
+      "name": "Living Room",
+      "sensor": {
+        "temperature": { "celsius": 21.4 },
+        "humidity": { "percentage": 47.2 }
+      }
+    }
+  ]
+}

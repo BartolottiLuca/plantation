@@ -1,0 +1,95 @@
+# CI: lint, test, helm lint, and a no-push image smoke build.
+# A values.yaml-only commit (C14 write-back) is ignored so it does not
+# rebuild CI. Chart-only PRs still run — helm lint matters there.
+
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "deploy/chart/values.yaml"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "deploy/chart/values.yaml"
+
+# No Docker Hub secrets. Fork PRs must stay runnable without DOCKERHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go vet, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLANTATION_TEST_DSN: postgres://postgres:postgres@localhost:5432/plantation_test?sslmode=disable
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: plantation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d plantation_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # go.mod's `go 1.23` is a minimum, not a pin. Use 1.25 to match the
+      # Dockerfile builder: yaml.v3's unpruned go.mod pulls
+      # rogpeppe/go-internal (requires go >= 1.25) into `go mod download`.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: go test
+        run: go test ./... -race
+
+  helm:
+    name: helm lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: helm lint
+        run: helm lint deploy/chart
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: plantation:ci
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}

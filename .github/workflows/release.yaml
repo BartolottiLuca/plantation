@@ -1,0 +1,136 @@
+# Release: multi-arch image push + chart tag write-back.
+#
+# Loop guards (any one alone is fragile — keep all three):
+# 1. Push the write-back with the default GITHUB_TOKEN, which does not
+#    start new workflow runs.
+# 2. paths-ignore on this workflow: a commit that only touches
+#    deploy/chart/** (including the write-back to values.yaml) does not
+#    rebuild the image. CI still lints chart-only PRs; see ci.yaml.
+# 3. [skip ci] in the bot commit message.
+#
+# <DOCKERHUB_USERNAME> is a repo secret, filled when the Docker Hub
+# repository exists — do not hard-code a username. The GitHub repo slug
+# is ${{ github.repository }} (no invented owner).
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "deploy/chart/**"
+
+permissions: {}
+
+jobs:
+  push-image:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # docker.io/<DOCKERHUB_USERNAME>/plantation — secret, not a guess.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/plantation
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Immutable image tag
+        id: meta
+        run: echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # QEMU is not required: the Dockerfile builds on BUILDPLATFORM and
+      # cross-compiles Go (C12). The final stage only COPY's the binary.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Never tag or push `latest`. ArgoCD cannot detect a change to a
+      # mutable tag, so a `latest` deployment silently never updates
+      # (SPEC.md §14).
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # Default attestations wrap the index; some cluster runtimes
+          # then fail to pull the tag ArgoCD just synced.
+          provenance: false
+          tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.image_tag }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.image_tag }}
+            COMMIT=${{ github.sha }}
+
+  write-back:
+    name: Write tag to chart
+    needs: push-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.44.6
+        run: |
+          curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /tmp/yq
+          chmod +x /tmp/yq
+          sudo mv /tmp/yq /usr/local/bin/yq
+          yq --version
+
+      # DOCKERHUB_TOKEN is intentionally not in this job.
+      - name: Commit image.tag and push
+        env:
+          IMAGE_TAG: ${{ needs.push-image.outputs.image_tag }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Rebase-and-retry: replay the tag edit on latest main so a
+          # concurrent merge does not fail the push, and skip if a newer
+          # image-producing commit already owns the field.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "${BRANCH}"
+            changed="$(git diff --name-only "${GITHUB_SHA}" "origin/${BRANCH}")"
+            if [ -n "${changed}" ] && printf '%s\n' "${changed}" | grep -q -v -E '^deploy/chart/'; then
+              echo "main has newer non-chart commits; their release owns image.tag"
+              exit 0
+            fi
+            git reset --hard "origin/${BRANCH}"
+            export IMAGE_TAG
+            yq -i '.image.tag = strenv(IMAGE_TAG) | .image.tag style="double"' \
+              deploy/chart/values.yaml
+            got="$(yq '.image.tag' deploy/chart/values.yaml)"
+            if [ "${got}" != "${IMAGE_TAG}" ]; then
+              echo "yq wrote ${got}, expected ${IMAGE_TAG}" >&2
+              exit 1
+            fi
+            if git diff --quiet -- deploy/chart/values.yaml; then
+              echo "image.tag already ${IMAGE_TAG}"
+              exit 0
+            fi
+            git add deploy/chart/values.yaml
+            git commit -m "chore(chart): set image.tag to ${IMAGE_TAG} [skip ci]"
+            if git push origin "HEAD:${BRANCH}"; then
+              exit 0
+            fi
+            echo "push rejected (attempt ${attempt}); fetching and retrying"
+          done
+          echo "write-back push failed after 5 attempts" >&2
+          exit 1

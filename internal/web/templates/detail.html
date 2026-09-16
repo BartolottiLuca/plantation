@@ -1,0 +1,76 @@
+{{define "title"}}{{.Plant.Name}} · Plantation{{end}}
+{{define "content"}}
+<article class="detail">
+  <h1>{{.Plant.Name}}</h1>
+  <p class="meta">{{.Species.CommonName}} <em>{{.Species.ScientificName}}</em>
+    {{if .Plant.Place}} · {{.Plant.Place}}{{end}} · {{.Plant.Location}}</p>
+
+  {{if .Retired}}
+  <p class="warn" role="status">This species is retired. The plant is still usable; the catalog entry will not be offered for new plants.</p>
+  {{end}}
+  {{if .Missing}}
+  <p class="warn" role="status">Species is missing from the catalog. Scheduling is unavailable.</p>
+  {{end}}
+
+  {{if .Water.Mode}}
+  <section class="expl" aria-labelledby="expl-heading">
+    <h2 id="expl-heading">Why {{.Water.KindLabel}}</h2>
+    <p class="summary">{{.Water.Summary}}</p>
+    {{if .EmptyEnv}}
+    <p class="empty-env">No environment data — using the species base interval.</p>
+    {{end}}
+    <dl>
+      <div><dt>Mode</dt><dd>{{.Water.Mode}}</dd></div>
+      <div><dt>Capacity</dt><dd>{{.Water.CapacityMM}} mm</dd></div>
+      <div><dt>Deficit</dt><dd>{{.Water.DeficitMM}} mm</dd></div>
+      <div><dt>Threshold</dt><dd>{{.Water.ThresholdMM}} mm</dd></div>
+      <div><dt>Depletion</dt><dd>{{.Water.DepletionPct}}</dd></div>
+      <div><dt>Mean ETc</dt><dd>{{.Water.MeanETcMMPerDay}} mm/day</dd></div>
+      <div><dt>Effective rain</dt><dd>{{.Water.EffectiveRainMM}} mm</dd></div>
+      <div><dt>Deferred</dt><dd>{{if .Water.Deferred}}yes{{if .Water.DeferredReason}} — {{.Water.DeferredReason}}{{end}}{{else}}no{{end}}</dd></div>
+      <div><dt>Clamped by</dt><dd>{{.Water.ClampedBy}}</dd></div>
+      <div><dt>Outdoor stale</dt><dd>{{if .Water.OutdoorStale}}yes{{else}}no{{end}}</dd></div>
+      <div><dt>Indoor stale</dt><dd>{{if .Water.IndoorDataStale}}yes{{else}}no{{end}}</dd></div>
+    </dl>
+  </section>
+  {{end}}
+
+  {{if .Tasks}}
+  <section aria-labelledby="tasks-heading">
+    <h2 id="tasks-heading">Care</h2>
+    {{range .Tasks}}{{template "task-row" .}}{{end}}
+  </section>
+  {{end}}
+
+  <section aria-labelledby="history-heading">
+    <h2 id="history-heading">Care history</h2>
+    {{if not .Events}}
+    <p class="empty">No care logged yet.</p>
+    {{else}}
+    <ul class="history">
+      {{range .Events}}
+      <li class="event">
+        <span>{{.Kind}} · {{.DoneOn}} · {{.Source}}{{if .Note}} — {{.Note}}{{end}}</span>
+        <form method="post" action="/events/{{.ID}}/void"
+              hx-post="/events/{{.ID}}/void"
+              hx-target="closest li"
+              hx-swap="outerHTML">
+          <input type="hidden" name="plant_id" value="{{$.PlantID}}">
+          <button type="submit">Undo</button>
+        </form>
+      </li>
+      {{end}}
+    </ul>
+    {{end}}
+  </section>
+
+  <p class="actions">
+    <a class="btn" href="/plants/{{.Plant.ID}}/edit">Edit</a>
+  </p>
+  <form class="danger" method="post" action="/plants/{{.Plant.ID}}/delete"
+        hx-post="/plants/{{.Plant.ID}}/delete"
+        hx-confirm="Remove this plant?">
+    <button type="submit">Remove plant</button>
+  </form>
+</article>
+{{end}}

@@ -1,0 +1,102 @@
+{{define "title"}}{{.Heading}} · Plantation{{end}}
+{{define "content"}}
+<h1>{{.Heading}}</h1>
+<form class="plant-form" method="post" action="{{.Action}}">
+  <label for="name">Name
+    <input id="name" name="name" type="text" required maxlength="200" value="{{.Form.Name}}" autocomplete="off">
+    {{with fieldErr .Form.Errors "name"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <label for="species_slug">Species
+    <select id="species_slug" name="species_slug" required>
+      <option value="">Choose a species</option>
+      {{range .Species}}
+      <option value="{{.Slug}}" {{selected $.Form.SpeciesSlug .Slug}}>{{.CommonName}} ({{.ScientificName}})</option>
+      {{end}}
+    </select>
+    {{with fieldErr .Form.Errors "species_slug"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <fieldset>
+    <legend>Location</legend>
+    <label class="choice"><input type="radio" name="location" value="indoor" {{checked .Form.Location "indoor"}}> Indoor</label>
+    <label class="choice"><input type="radio" name="location" value="outdoor" {{checked .Form.Location "outdoor"}}> Outdoor</label>
+    {{with fieldErr .Form.Errors "location"}}<span class="error">{{.}}</span>{{end}}
+  </fieldset>
+
+  <label for="place">Place
+    <input id="place" name="place" type="text" maxlength="200" value="{{.Form.Place}}" placeholder="living room windowsill">
+    {{with fieldErr .Form.Errors "place"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  {{if .UseRoomSelect}}
+  <label for="tado_room_id">Tado room
+    <select id="tado_room_id" name="tado_room_id">
+      <option value="">None</option>
+      {{range .Rooms}}
+      <option value="{{.RoomID}}" {{selected $.Form.TadoRoomID .RoomID}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </label>
+  {{else}}
+  <label for="tado_room_id">Tado room id
+    <input id="tado_room_id" name="tado_room_id" type="text" value="{{.Form.TadoRoomID}}" autocomplete="off">
+  </label>
+  {{end}}
+
+  <label for="pot_diameter_mm">Pot diameter (mm)
+    <input id="pot_diameter_mm" name="pot_diameter_mm" type="number" min="40" max="2000" required value="{{.Form.PotDiameterMM}}">
+    {{with fieldErr .Form.Errors "pot_diameter_mm"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <fieldset>
+    <legend>Exposure</legend>
+    <label class="choice"><input type="radio" name="f_exposure" value="1.0" {{checked .Form.FExposure "1.0"}}> Sheltered (1.0)</label>
+    <label class="choice"><input type="radio" name="f_exposure" value="1.3" {{checked .Form.FExposure "1.3"}}> Full sun or windy balcony (1.3)</label>
+    {{with fieldErr .Form.Errors "f_exposure"}}<span class="error">{{.}}</span>{{end}}
+  </fieldset>
+
+  <fieldset>
+    <legend>Rain</legend>
+    <label class="choice"><input type="radio" name="f_rain" value="0.0" {{checked .Form.FRain "0.0"}}> Indoor or under eaves (0.0)</label>
+    <label class="choice"><input type="radio" name="f_rain" value="0.6" {{checked .Form.FRain "0.6"}}> Partly sheltered (0.6)</label>
+    <label class="choice"><input type="radio" name="f_rain" value="0.9" {{checked .Form.FRain "0.9"}}> Fully open (0.9)</label>
+    {{with fieldErr .Form.Errors "f_rain"}}<span class="error">{{.}}</span>{{end}}
+  </fieldset>
+
+  <details class="advanced"{{if .AdvancedOpen}} open{{end}}>
+    <summary>Advanced</summary>
+    <label for="kc_override">Kc override
+      <input id="kc_override" name="kc_override" type="text" inputmode="decimal" value="{{.Form.Kc}}">
+      {{with fieldErr .Form.Errors "kc_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="mad_override">MAD override
+      <input id="mad_override" name="mad_override" type="text" inputmode="decimal" value="{{.Form.MAD}}">
+      {{with fieldErr .Form.Errors "mad_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="substrate_override">Substrate override
+      <select id="substrate_override" name="substrate_override">
+        <option value="">Species default</option>
+        <option value="peat" {{selected .Form.Substrate "peat"}}>Peat</option>
+        <option value="cactus" {{selected .Form.Substrate "cactus"}}>Cactus</option>
+        <option value="coir" {{selected .Form.Substrate "coir"}}>Coir</option>
+      </select>
+      {{with fieldErr .Form.Errors "substrate_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="base_interval_days_override">Base interval (days)
+      <input id="base_interval_days_override" name="base_interval_days_override" type="number" min="1" max="365" value="{{.Form.BaseInterval}}">
+      {{with fieldErr .Form.Errors "base_interval_days_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="min_interval_days_override">Min interval (days)
+      <input id="min_interval_days_override" name="min_interval_days_override" type="number" min="1" max="365" value="{{.Form.MinInterval}}">
+      {{with fieldErr .Form.Errors "min_interval_days_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="max_interval_days_override">Max interval (days)
+      <input id="max_interval_days_override" name="max_interval_days_override" type="number" min="1" max="365" value="{{.Form.MaxInterval}}">
+      {{with fieldErr .Form.Errors "max_interval_days_override"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+  </details>
+
+  <button type="submit">{{.Submit}}</button>
+</form>
+{{end}}

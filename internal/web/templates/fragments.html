@@ -1,0 +1,16 @@
+{{define "task-row"}}
+<article class="task{{if .Preselected}} preselected{{end}}" id="task-{{.PlantID}}-{{.Kind}}"{{if .Preselected}} data-preselected="{{.Kind}}"{{end}}>
+  <div class="task-body">
+    <h3><a href="/plants/{{.PlantID}}">{{.PlantName}}</a></h3>
+    <p class="kind">{{.KindLabel}}</p>
+    <p class="summary">{{.Summary}}</p>
+    <p class="meta"><span class="status status-{{.Status}}">{{.StatusLabel}}</span> · {{.DueOn}}</p>
+  </div>
+  <form class="done" method="post" action="/plants/{{.PlantID}}/care/{{.Kind}}"
+        hx-post="/plants/{{.PlantID}}/care/{{.Kind}}"
+        hx-target="closest article"
+        hx-swap="outerHTML">
+    <button type="submit">Done</button>
+  </form>
+</article>
+{{end}}

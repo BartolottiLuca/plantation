@@ -18,13 +18,24 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/BartolottiLuca/plantation/internal/care"
 	"github.com/BartolottiLuca/plantation/internal/catalog"
+	"github.com/BartolottiLuca/plantation/internal/climate/tado"
 	"github.com/BartolottiLuca/plantation/internal/config"
 	"github.com/BartolottiLuca/plantation/internal/notify"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/BartolottiLuca/plantation/internal/weather"
 	"github.com/BartolottiLuca/plantation/internal/web"
 )
+
+// wallClock is cmd's one clock of record. Packages take a Clock; they
+// must not call time.Now themselves (AGENTS.md).
+type wallClock struct{}
+
+func (wallClock) Now() time.Time { return time.Now() }
+
+var _ care.Clock = wallClock{}
+var _ tado.Clock = wallClock{}
 
 // dbGate lets /healthz come up before Postgres. /readyz pings only after Open+Migrate.
 type dbGate struct {
@@ -146,6 +157,9 @@ func serve() int {
 		}
 		log.Info("species catalog upserted", "count", len(species))
 
+		// Mount UI before flipping /readyz so a ready pod already has routes.
+		// ServeMux allows Handle after Serve starts (Go 1.22+).
+		registerUI(mux, pool, cfg)
 		db.set(pool)
 		log.Info("database ready")
 	}()
@@ -181,6 +195,30 @@ func serve() int {
 	}
 	log.Info("plantation stopped")
 	return 0
+}
+
+func registerUI(mux *http.ServeMux, pool *pgxpool.Pool, cfg config.Config) {
+	clk := wallClock{}
+	ui := web.NewServer(web.Server{
+		Plants:     store.NewPlantRepo(pool),
+		Species:    store.NewSpeciesRepo(pool),
+		Events:     store.NewCareEventRepo(pool),
+		Clock:      clk,
+		Location:   cfg.Location,
+		WriteToken: cfg.WriteToken,
+		Rooms:      roomLister(cfg, pool, clk),
+		// Env and LastDigestFailed stay nil until C09 can build a real
+		// series and query the last digest row.
+	})
+	ui.Register(mux)
+}
+
+func roomLister(cfg config.Config, pool *pgxpool.Pool, clk wallClock) web.RoomLister {
+	if !cfg.TadoEnabled {
+		return nil
+	}
+	auth := tado.NewClient(store.NewTadoTokenRepo(pool), tado.WithClock(clk))
+	return tado.NewSampler(auth, store.NewClimateRepo(pool), store.NewPlantRepo(pool))
 }
 
 // backfillWeather is a one-off wider fetch (default 30 days of history vs.
