@@ -10,17 +10,14 @@
 # nothing wants two schedulers racing Tado's rotating refresh token or double-firing
 # the Discord digest. deployment.yaml refuses to render above 1.
 replicaCount: 1
-
 image:
   # CHANGEME — Docker Hub username/repo, e.g. "janedoe/plantation".
   repository: CHANGEME/plantation
   # C14's write-back workflow rewrites this tag in place with `yq`. Keep it a plain
   # quoted scalar (never a templated expression) so that edit stays a one-line diff.
-  tag: "sha-0000000"
+  tag: "sha-3751817"
   pullPolicy: IfNotPresent
-
 imagePullSecrets: []
-
 config:
   # CHANGEME — IANA timezone, e.g. "Europe/London" (PLANTATION_TZ). Required.
   tz: "CHANGEME-set-an-IANA-timezone"
@@ -40,7 +37,6 @@ config:
   tadoEnabled: true
   logLevel: info
   httpAddr: ":8080"
-
 # Discord incoming webhook URL. Never inline in values — create the Secret
 # out-of-band, e.g.:
 #   kubectl create secret generic plantation-discord \
@@ -50,13 +46,11 @@ config:
 discord:
   existingSecretName: ""
   existingSecretKey: "webhookUrl"
-
 # Optional bearer token required on POST routes (PLANTATION_WRITE_TOKEN). Same
 # existingSecret pattern as discord above; empty existingSecretName disables it.
 writeToken:
   existingSecretName: ""
   existingSecretKey: "writeToken"
-
 ingress:
   enabled: false
   className: ""
@@ -65,11 +59,9 @@ ingress:
   host: "CHANGEME.example.invalid"
   tls: []
   annotations: {}
-
 service:
   type: ClusterIP
   port: 80
-
 # CloudNativePG-backed database. Disable and fill in externalDatabase below to
 # point at a Postgres you manage yourself instead.
 postgresql:
@@ -77,14 +69,12 @@ postgresql:
   instances: 1
   storageSize: 5Gi
   storageClassName: ""
-
 # Used only when postgresql.enabled is false. Must name a Secret already present
 # on the cluster containing a full PLANTATION_DATABASE_URL-compatible DSN under
 # the given key.
 externalDatabase:
   existingSecretName: ""
   existingSecretKey: "uri"
-
 # pg_dump CronJob against the CNPG `-rw` service. Only meaningful when
 # postgresql.enabled is true.
 backup:
@@ -93,7 +83,6 @@ backup:
   retentionDays: 14
   storageSize: 5Gi
   storageClassName: ""
-
 resources:
   requests:
     cpu: 50m
@@ -101,7 +90,6 @@ resources:
   limits:
     cpu: 500m
     memory: 256Mi
-
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
