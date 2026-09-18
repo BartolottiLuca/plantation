@@ -20,6 +20,19 @@ type DigestLine struct {
 	Summary   string
 }
 
+type FrostNight struct {
+	Date  domain.Date
+	TempC float64
+}
+
+type FrostAdvice string
+
+const (
+	FrostAdviceBringIndoors FrostAdvice = "bring_indoors"
+	FrostAdviceFleece       FrostAdvice = "fleece"
+	FrostAdviceLift         FrostAdvice = "lift"
+)
+
 // FormatDigest renders SPEC.md §8's daily digest: one embed, an "Overdue"
 // section then a "Due today" section, one line per task as
 // "<plant> — <task> — <summary>", each line linking to
@@ -65,12 +78,29 @@ func plantURL(baseURL string, id uuid.UUID) string {
 	return strings.TrimRight(baseURL, "/") + "/plants/" + id.String()
 }
 
-// FormatFrost renders SPEC.md §8's frost alert. Frost is per-plant — the
-// dedupe key is frost:<plant-id>:<date> — so this formats exactly one plant.
-func FormatFrost(plantName string, date domain.Date, tempC float64, url string) Message {
+// FormatFrost renders one plant's qualifying forecast nights under the
+// earliest night's dedupe key.
+func FormatFrost(plantName string, nights []FrostNight, advice FrostAdvice, url string) Message {
+	if len(nights) == 0 {
+		return Message{}
+	}
+	var b strings.Builder
+	b.WriteString("Cold nights forecast:")
+	for _, night := range nights {
+		fmt.Fprintf(&b, "\n- %s: %.1f°C", night.Date, night.TempC)
+	}
+	b.WriteString("\n\n")
+	switch advice {
+	case FrostAdviceFleece:
+		fmt.Fprintf(&b, "Cover %s with horticultural fleece before the first cold night.", plantName)
+	case FrostAdviceLift:
+		fmt.Fprintf(&b, "Horticultural fleece is not enough protection for %s; pot it up and bring it indoors before the first cold night.", plantName)
+	default:
+		fmt.Fprintf(&b, "Bring %s indoors before the first cold night.", plantName)
+	}
 	return Message{
 		Title:       fmt.Sprintf("Frost warning: %s", plantName),
-		Description: fmt.Sprintf("%s is forecast %.1f°C on %s — bring it indoors or cover it tonight.", plantName, tempC, date),
+		Description: b.String(),
 		URL:         url,
 	}
 }

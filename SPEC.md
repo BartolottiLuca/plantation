@@ -629,13 +629,21 @@ cannot re-alert:
 | Kind | Key |
 |---|---|
 | daily digest | `digest:2026-09-11` |
-| frost | `frost:<plant-id>:2026-09-13` |
+| frost | `frost:<plant-id>:2026-09-13` (date is the earliest qualifying forecast night) |
 | heatwave | `heatwave:2026-07-02` |
 | rain deferral | `rain_skip:2026-09-12` |
 | ops (Tado re-auth, stale weather, send failure) | `ops:<reason>:2026-09-11` |
 
-Material worsening gets a coarse severity suffix (`frost:…:sev2`). Keep the buckets
-coarse or it becomes spam.
+One frost embed lists every currently forecast night where
+`tmin ≤ species.min_temp_c`. Re-polls keep the earliest qualifying night as the key and
+therefore do not resend. After that anchor night passes, a later qualifying night may
+become a new event and produce one follow-up.
+
+Potted plants are brought indoors. In-ground plants may stay outside under horticultural
+fleece only when `min_temp_c ≤ 2 °C` and every listed night is at least
+`min_temp_c − 4 °C`; otherwise the advice is to pot the plant up and bring it indoors.
+Fleece is frost cloth, not a greenhouse, so it is not suitable protection for tender
+species above the 2 °C threshold.
 
 Discord failure handling: `429` honour `retry_after` (float seconds, in the JSON body);
 `5xx` retry; `404` is permanent — stop and mark `failed`. At most 3 attempts, then record
@@ -671,8 +679,8 @@ offset arithmetic), restart-proof (a pod booting at 09:07 sends immediately), an
 missed-wakeup semantics.
 
 Urgent rules: frost when a forecast `tmin ≤ species.min_temp_c` for an outdoor
-frost-tender plant; heatwave at `tmax ≥ 32 °C`; plus the aggregated rain-skip and the ops
-alerts.
+frost-tender plant, aggregated per plant under the earliest qualifying night as described
+in §8; heatwave at `tmax ≥ 32 °C`; plus the aggregated rain-skip and the ops alerts.
 
 **`main.go` must `import _ "time/tzdata"`.** A distroless or scratch image carries no
 zoneinfo database, so `time.LoadLocation` fails and the app silently falls back to UTC —

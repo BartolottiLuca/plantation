@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/BartolottiLuca/plantation/internal/care"
 	"github.com/BartolottiLuca/plantation/internal/climate"
 	"github.com/BartolottiLuca/plantation/internal/domain"
+	"github.com/BartolottiLuca/plantation/internal/notify"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/google/uuid"
 )
@@ -86,6 +88,82 @@ func TestThirtyDaysOneDigestPerActionableDayAndOneFrost(t *testing.T) {
 	if !n.has("digest:2026-03-29") {
 		t.Fatal("missing digest on DST transition day 2026-03-29")
 	}
+}
+
+func TestFrostAlertsAggregateNightsAndChooseProtection(t *testing.T) {
+	today := domain.Date{Year: 2026, Month: time.September, Day: 18}
+	firstNight := domain.Date{Year: 2026, Month: time.September, Day: 20}
+	secondNight := domain.Date{Year: 2026, Month: time.September, Day: 21}
+	wx := &fakeWeather{series: care.EnvSeries{Days: []care.DayEnv{
+		{Date: secondNight, TMinC: -8.5},
+		{Date: firstNight, TMinC: -6},
+	}}}
+	n := &capturingNotifier{sent: map[string]notify.Message{}}
+	loop := New(Loop{
+		BaseURL: "https://plantation.example.invalid",
+		Weather: wx,
+		Notify:  n,
+		Log:     discardLog(),
+	})
+
+	rows := []store.PlantWithSpecies{
+		frostPlant("11111111-1111-1111-1111-111111111111", "Potted fig", false, 12),
+		frostPlant("22222222-2222-2222-2222-222222222222", "Ground monstera", true, 12),
+		frostPlant("33333333-3333-3333-3333-333333333333", "Protected hydrangea", true, -5),
+		frostPlant("44444444-4444-4444-4444-444444444444", "Lifted shrub", true, -3),
+	}
+	loop.frostAlerts(context.Background(), today, rows)
+	loop.frostAlerts(context.Background(), today, rows)
+
+	cases := []struct {
+		row        store.PlantWithSpecies
+		wantAdvice string
+	}{
+		{row: rows[0], wantAdvice: "Bring Potted fig indoors"},
+		{row: rows[1], wantAdvice: "pot it up and bring it indoors"},
+		{row: rows[2], wantAdvice: "Cover Protected hydrangea with horticultural fleece"},
+		{row: rows[3], wantAdvice: "pot it up and bring it indoors"},
+	}
+	if len(n.sent) != len(cases) {
+		t.Fatalf("frost sends = %d, want %d: %v", len(n.sent), len(cases), n.sent)
+	}
+	for _, tc := range cases {
+		key := "frost:" + tc.row.Plant.ID.String() + ":" + firstNight.String()
+		msg, ok := n.sent[key]
+		if !ok {
+			t.Errorf("missing earliest-night key %s", key)
+			continue
+		}
+		for _, want := range []string{firstNight.String(), secondNight.String(), tc.wantAdvice} {
+			if !strings.Contains(msg.Description, want) {
+				t.Errorf("%s description = %q, missing %q", tc.row.Plant.Name, msg.Description, want)
+			}
+		}
+	}
+}
+
+func frostPlant(id, name string, inGround bool, minTempC float64) store.PlantWithSpecies {
+	return store.PlantWithSpecies{
+		Plant: domain.Plant{
+			ID:       uuid.MustParse(id),
+			Name:     name,
+			Location: domain.Outdoor,
+			InGround: inGround,
+			Active:   true,
+		},
+		Species: domain.Species{MinTempC: minTempC, FrostTender: true},
+	}
+}
+
+type capturingNotifier struct {
+	sent map[string]notify.Message
+}
+
+func (n *capturingNotifier) SendOnce(_ context.Context, key, _ string, msg notify.Message) error {
+	if _, exists := n.sent[key]; !exists {
+		n.sent[key] = msg
+	}
+	return nil
 }
 
 func TestRestartAt907Sends920AfterSendDoesNot(t *testing.T) {

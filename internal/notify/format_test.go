@@ -72,16 +72,38 @@ func TestFormatDigestTrimsTrailingSlashInBaseURL(t *testing.T) {
 }
 
 func TestFormatFrost(t *testing.T) {
-	date := domain.Date{Year: 2026, Month: time.September, Day: 13}
-	msg := FormatFrost("Fig", date, -1.5, "https://example.com/plants/x")
-	if isEmptyMessage(msg) {
-		t.Fatal("FormatFrost produced an empty message")
+	nights := []FrostNight{
+		{Date: domain.Date{Year: 2026, Month: time.September, Day: 13}, TempC: -1.5},
+		{Date: domain.Date{Year: 2026, Month: time.September, Day: 15}, TempC: -3},
 	}
-	if msg.URL != "https://example.com/plants/x" {
-		t.Errorf("URL = %q", msg.URL)
+	cases := []struct {
+		name       string
+		advice     FrostAdvice
+		wantAdvice string
+	}{
+		{name: "potted", advice: FrostAdviceBringIndoors, wantAdvice: "Bring Fig indoors"},
+		{name: "in-ground fleece", advice: FrostAdviceFleece, wantAdvice: "Cover Fig with horticultural fleece"},
+		{name: "in-ground lift", advice: FrostAdviceLift, wantAdvice: "pot it up and bring it indoors"},
 	}
-	if !strings.Contains(msg.Description, "Fig") || !strings.Contains(msg.Description, "2026-09-13") {
-		t.Errorf("Description = %q, missing plant name or date", msg.Description)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := FormatFrost("Fig", nights, tc.advice, "https://example.com/plants/x")
+			if isEmptyMessage(msg) {
+				t.Fatal("FormatFrost produced an empty message")
+			}
+			if msg.URL != "https://example.com/plants/x" {
+				t.Errorf("URL = %q", msg.URL)
+			}
+			for _, want := range []string{"2026-09-13: -1.5°C", "2026-09-15: -3.0°C", tc.wantAdvice} {
+				if !strings.Contains(msg.Description, want) {
+					t.Errorf("Description = %q, missing %q", msg.Description, want)
+				}
+			}
+		})
+	}
+
+	if !isEmptyMessage(FormatFrost("Fig", nil, FrostAdviceBringIndoors, "https://example.com/plants/x")) {
+		t.Error("FormatFrost with no nights should be empty")
 	}
 }
 

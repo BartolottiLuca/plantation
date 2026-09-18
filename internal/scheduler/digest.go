@@ -15,6 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	fleeceMaxMinTempC = 2.0
+	fleeceProtectionC = 4.0
+)
+
 type scheduled struct {
 	Plant   domain.Plant
 	Species domain.Species
@@ -142,6 +147,7 @@ func (l *Loop) frostAlerts(ctx context.Context, today domain.Date, rows []store.
 		if !row.Plant.Active || row.Plant.Location != domain.Outdoor || !row.Species.FrostTender {
 			continue
 		}
+		var nights []notify.FrostNight
 		for _, day := range series.Days {
 			if day.Date.Before(today) || day.Observed {
 				continue
@@ -149,14 +155,36 @@ func (l *Loop) frostAlerts(ctx context.Context, today domain.Date, rows []store.
 			if day.TMinC > row.Species.MinTempC {
 				continue
 			}
-			key := fmt.Sprintf("frost:%s:%s", row.Plant.ID, day.Date)
-			url := strings.TrimRight(l.BaseURL, "/") + "/plants/" + row.Plant.ID.String()
-			msg := notify.FormatFrost(row.Plant.Name, day.Date, day.TMinC, url)
-			if err := l.Notify.SendOnce(ctx, key, "frost", msg); err != nil {
-				l.Log.Error("sending frost alert", "err", err)
-			}
+			nights = append(nights, notify.FrostNight{Date: day.Date, TempC: day.TMinC})
+		}
+		if len(nights) == 0 {
+			continue
+		}
+		sort.Slice(nights, func(i, j int) bool {
+			return nights[i].Date.Before(nights[j].Date)
+		})
+		key := fmt.Sprintf("frost:%s:%s", row.Plant.ID, nights[0].Date)
+		url := strings.TrimRight(l.BaseURL, "/") + "/plants/" + row.Plant.ID.String()
+		msg := notify.FormatFrost(row.Plant.Name, nights, frostAdvice(row, nights), url)
+		if err := l.Notify.SendOnce(ctx, key, "frost", msg); err != nil {
+			l.Log.Error("sending frost alert", "err", err)
 		}
 	}
+}
+
+func frostAdvice(row store.PlantWithSpecies, nights []notify.FrostNight) notify.FrostAdvice {
+	if !row.Plant.InGround {
+		return notify.FrostAdviceBringIndoors
+	}
+	if row.Species.MinTempC > fleeceMaxMinTempC {
+		return notify.FrostAdviceLift
+	}
+	for _, night := range nights {
+		if night.TempC < row.Species.MinTempC-fleeceProtectionC {
+			return notify.FrostAdviceLift
+		}
+	}
+	return notify.FrostAdviceFleece
 }
 
 func (l *Loop) heatwaveAlert(ctx context.Context, today domain.Date, rows []store.PlantWithSpecies) {
