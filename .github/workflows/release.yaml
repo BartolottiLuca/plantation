@@ -1,23 +1,25 @@
-# Release: multi-arch image push + chart tag write-back + git tag.
+# Release: multi-arch image + semver git tag + chart write-back.
 #
-# Semver (what Argo deploys) is published only from a versioned release:
-#   - Actions → Release → Run workflow → bump patch/minor/major
-#     (first release is 0.1.0; later ones increment the latest vX.Y.Z tag)
-#   - optional exact version input, if you need to skip a number
-#   - or: git tag v0.1.1 && git push origin v0.1.1 (still works)
-# The workflow pushes the vX.Y.Z git tag itself after a successful dispatch
-# so you do not tag by hand. GITHUB_TOKEN tag pushes do not start a second run.
-# A push to main still builds an immutable sha-<short> tag, but does not
-# move deploy/chart/values.yaml, so the cluster stays on the last semver.
+# Tagging strategy (automatic on every push to main that is not a write-back):
+#   1. Read the latest vX.Y.Z tag. None → 0.1.0 and stop looking at commits.
+#   2. Otherwise inspect subjects/bodies since that tag:
+#        type!: …  or  BREAKING CHANGE:  → major
+#        feat: …  /  feat(scope): …      → minor
+#        anything else                   → patch
+#   3. Publish docker.io/…/plantation:X.Y.Z and :sha-<short> (never latest).
+#   4. Write image.tag / appVersion on main (Argo syncs that; no App edit).
+#   5. Push annotated git tag vX.Y.Z on the built commit.
+#
+# workflow_dispatch is an override (force patch/minor/major or an exact X.Y.Z),
+# not the normal path. Pushing a vX.Y.Z tag yourself still publishes that version.
 #
 # Loop guards (any one alone is fragile — keep all three):
 # 1. Push the write-back with the default GITHUB_TOKEN, which does not
 #    start new workflow runs.
-# 2. paths-ignore on the write-back file: a commit that only touches
-#    deploy/chart/values.yaml does not rebuild the image.
+# 2. paths-ignore on the write-back files.
 # 3. [skip ci] in the bot commit message.
 #
-# Never retag an existing X.Y.Z — bump instead. Never publish `latest`.
+# Never retag an existing X.Y.Z. Never publish `latest`.
 
 name: Release
 
@@ -28,10 +30,11 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
     paths-ignore:
       - "deploy/chart/values.yaml"
+      - "deploy/chart/Chart.yaml"
   workflow_dispatch:
     inputs:
       bump:
-        description: Increment from the latest vX.Y.Z tag. First release is always 0.1.0.
+        description: Override the commit-based bump (ignored when version is set).
         required: true
         default: patch
         type: choice
@@ -40,7 +43,7 @@ on:
           - minor
           - major
       version:
-        description: Optional exact X.Y.Z (ignores bump). Leave empty to auto-bump.
+        description: Optional exact X.Y.Z. Leave empty to use the tagging strategy.
         required: false
         type: string
 
@@ -109,6 +112,22 @@ jobs:
             echo "${major}.${minor}.${patch}"
           }
 
+          # Highest bump among commits after v${latest}. First release skips this.
+          bump_from_commits() {
+            local latest="$1"
+            local subjects bodies
+            subjects="$(git log --format='%s' "v${latest}..HEAD")"
+            bodies="$(git log --format='%b' "v${latest}..HEAD")"
+            if printf '%s\n' "${subjects}" | grep -qE '^[a-z]+(\([^)]+\))?!:' \
+              || printf '%s\n' "${bodies}" | grep -qE '^BREAKING CHANGE:'; then
+              echo major
+            elif printf '%s\n' "${subjects}" | grep -qE '^feat(\([^)]+\))?:'; then
+              echo minor
+            else
+              echo patch
+            fi
+          }
+
           release=""
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             if [ "${REF}" != "refs/heads/main" ]; then
@@ -122,11 +141,18 @@ jobs:
             fi
           elif [ "${REF_TYPE}" = "tag" ]; then
             release="${REF_NAME#v}"
+          elif [ "${REF}" = "refs/heads/main" ]; then
+            latest="$(latest_semver)"
+            if [ -z "${latest}" ]; then
+              release="0.1.0"
+            else
+              release="$(bump_semver "${latest}" "$(bump_from_commits "${latest}")")"
+            fi
           fi
           if [ -n "${release}" ]; then
             echo "${release}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
               || { echo "version must be X.Y.Z, got ${release}" >&2; exit 1; }
-            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${REF_TYPE}" != "tag" ]; then
               existing="$(git ls-remote --tags origin "refs/tags/v${release}")"
               if [ -n "${existing}" ]; then
                 echo "git tag v${release} already exists; bump instead of reusing" >&2
@@ -225,10 +251,10 @@ jobs:
           echo "write-back push failed after 5 attempts" >&2
           exit 1
 
-      # Tag the commit that was built, not the write-back commit. After the chart
-      # is updated so a failed tag can be retried without bumping past this version.
+      # Tag the built commit, not the write-back. After the chart so a failed
+      # tag can be retried without inventing a new version.
       - name: Push git tag
-        if: github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/main'
         env:
           IMAGE_TAG: ${{ needs.push-image.outputs.release_tag }}
           BUILT_SHA: ${{ github.sha }}

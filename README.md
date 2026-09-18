@@ -51,12 +51,11 @@ Full config table: [SPEC.md](SPEC.md) §12.
 
 ## Deploying
 
-GitHub Actions builds a multi-arch image and pushes it to Docker Hub. A versioned
-release is Actions → Release → Run workflow (`patch` / `minor` / `major`; first
-tag is `0.1.0`). That run publishes the semver, commits it into
-`deploy/chart/values.yaml`, and pushes git tag `vX.Y.Z`. ArgoCD watches the chart
-and syncs. A plain push to `main` only adds a `sha-<short>` tag and does not move
-the cluster.
+GitHub Actions builds a multi-arch image and pushes it to Docker Hub. A push to
+`main` is a release: it picks the next semver from commits since the last git tag
+(`feat:` → minor, `BREAKING CHANGE:` / `type!:` → major, otherwise patch; first
+tag is `0.1.0`), publishes that image, writes `deploy/chart/values.yaml`, and
+pushes `vX.Y.Z`. ArgoCD watches the chart and syncs.
 Postgres is a CloudNativePG `Cluster` in the same namespace.
 
 Cluster prerequisites:

@@ -13,9 +13,8 @@ replicaCount: 1
 image:
   # CHANGEME — Docker Hub username/repo, e.g. "janedoe/plantation".
   repository: CHANGEME/plantation
-  # Release write-back rewrites this with yq on a versioned release (0.1.0, …).
-  # Keep it a plain quoted scalar. Never `latest`. Git tag vX.Y.Z is created by
-  # that same Release run.
+  # Release rewrites this with yq on every push to main. Keep it a plain quoted
+  # scalar. Never `latest`. Git tag vX.Y.Z is created by that same run.
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 imagePullSecrets: []

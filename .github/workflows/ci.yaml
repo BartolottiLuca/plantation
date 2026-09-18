@@ -1,6 +1,6 @@
 # CI: lint, test, helm lint, and a no-push image smoke build.
-# A values.yaml-only commit (C14 write-back) is ignored so it does not
-# rebuild CI. Chart-only PRs still run — helm lint matters there.
+# A write-back commit (values.yaml + Chart.yaml only) is ignored so it does not
+# rebuild CI. Chart template PRs still run — helm lint matters there.
 
 name: CI
 
@@ -8,10 +8,12 @@ on:
   pull_request:
     paths-ignore:
       - "deploy/chart/values.yaml"
+      - "deploy/chart/Chart.yaml"
   push:
     branches: [main]
     paths-ignore:
       - "deploy/chart/values.yaml"
+      - "deploy/chart/Chart.yaml"
 
 # No Docker Hub secrets. Fork PRs must stay runnable without DOCKERHUB_TOKEN.
 permissions:
