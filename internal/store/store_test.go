@@ -116,3 +116,55 @@ func TestSpeciesPlantAndCareRoundTrip(t *testing.T) {
 		t.Fatalf("missing species err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestInGroundPlantStoresNullPotDiameter(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	species := NewSpeciesRepo(pool)
+	plants := NewPlantRepo(pool)
+	mustSpecies(t, species, "monstera-deliciosa")
+
+	p, err := plants.Create(ctx, domain.Plant{
+		Name:        "Bed lavender",
+		SpeciesSlug: "monstera-deliciosa",
+		Location:    domain.Outdoor,
+		InGround:    true,
+		FExposure:   1.3,
+		FRain:       0.9,
+		Active:      true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := plants.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.InGround || got.PotDiameterMM != 0 {
+		t.Fatalf("got %+v", got)
+	}
+	listed, err := plants.List(ctx)
+	if err != nil || len(listed) != 1 || !listed[0].Plant.InGround {
+		t.Fatalf("List = %+v err=%v", listed, err)
+	}
+}
+
+func TestInGroundIndoorRejectedByCheck(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	species := NewSpeciesRepo(pool)
+	plants := NewPlantRepo(pool)
+	mustSpecies(t, species, "monstera-deliciosa")
+
+	_, err := plants.Create(ctx, domain.Plant{
+		Name:        "Indoor bed",
+		SpeciesSlug: "monstera-deliciosa",
+		Location:    domain.Indoor,
+		InGround:    true,
+		FExposure:   1.0,
+		Active:      true,
+	})
+	if err == nil {
+		t.Fatal("Create indoor in-ground succeeded")
+	}
+}

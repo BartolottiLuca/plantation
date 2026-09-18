@@ -318,6 +318,14 @@ form.danger button {
   accent-color: var(--accent);
 }
 
+.plant-form:has([name="location"][value="indoor"]:checked) .container-ground {
+  display: none;
+}
+
+.plant-form:has([name="location"][value="outdoor"]:checked):has([name="container"][value="ground"]:checked) .pot-diameter {
+  display: none;
+}
+
 .error {
   display: block;
   color: var(--danger);

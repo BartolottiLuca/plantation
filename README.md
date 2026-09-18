@@ -18,11 +18,11 @@ full behavioural contract.
 
 ## How it decides
 
-A pot is a reservoir measured in millimetres, because evapotranspiration and rainfall are
-both depths. Capacity comes from pot diameter and substrate; each day the plant loses
-`Kc × ET0` and gains whatever rain actually reaches it; when the deficit passes the
-species' allowed depletion, it is due. Indoors the same model runs on an ET0 derived from
-vapour pressure deficit instead of the weather forecast.
+A reservoir measured in millimetres, because evapotranspiration and rainfall are both
+depths. Capacity comes from pot diameter (or a 300 mm root zone in the ground) and
+substrate; each day the plant loses `Kc × ET0` and gains whatever rain actually reaches
+it; when the deficit passes the species' allowed depletion, it is due. Indoors the same
+model runs on an ET0 derived from vapour pressure deficit instead of the weather forecast.
 
 Every due date is computed on read from the care-event log and the weather series —
 nothing is cached, so the number on the dashboard and the number in the digest can never

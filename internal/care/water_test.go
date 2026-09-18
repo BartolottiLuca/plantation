@@ -104,6 +104,22 @@ func TestCalibrationScenarios(t *testing.T) {
 	}
 }
 
+func TestInGroundUsesRootZoneCapacity(t *testing.T) {
+	today := domain.Date{Year: 2026, Month: time.July, Day: 1}
+	p := Params{
+		Location: domain.Outdoor, Kc: 0.7, Substrate: domain.Peat, MAD: 0.5,
+		MinIntervalDays: 1, MaxIntervalDays: 90, BaseIntervalDays: 14,
+		FExposure: 1, FRain: 0.9, InGround: true,
+	}
+	_, expl := ScheduleWater(p, nil, constantOutdoor(today, 3), today)
+	if expl.Mode != ModeWaterBalance {
+		t.Fatalf("mode = %q, want water_balance", expl.Mode)
+	}
+	if relErr(expl.CapacityMM, 90) > 0.02 {
+		t.Fatalf("capacity %.3f, want 90", expl.CapacityMM)
+	}
+}
+
 func TestVoidedWaterEventIsIgnored(t *testing.T) {
 	today := domain.Date{Year: 2026, Month: time.June, Day: 10}
 	voidedAt := time.Date(2026, time.June, 9, 12, 0, 0, 0, time.UTC)
@@ -348,6 +364,10 @@ func TestPropertyIntervalWithinBounds(t *testing.T) {
 		}
 		if rng.IntN(5) == 0 {
 			p.PotDiameterMM = 0
+		}
+		if rng.IntN(6) == 0 {
+			p.InGround = true
+			p.Location = domain.Outdoor
 		}
 		env := EnvSeries{}
 		switch rng.IntN(4) {

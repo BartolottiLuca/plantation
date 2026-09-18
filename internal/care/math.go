@@ -8,23 +8,25 @@ import (
 )
 
 const (
-	fRoot          = 0.6
-	potDepthFactor = 0.8
-	thetaPeat      = 0.30
-	thetaCactus    = 0.15
-	thetaCoir      = 0.35
-	vpdRefKPa      = 1.20
-	et0IndoorRef   = 2.0
-	fDryMin        = 0.5
-	fDryMax        = 2.0
-	projectionDays = 60
-	meanET0Window  = 14
-	rainLookahead  = 2
-	rainCoverFrac  = 0.7
-	rainMinProb    = 60.0
-	rainStressFrac = 0.9
-	maxDeferDays   = 2
-	madNoDefer     = 0.35
+	fRoot             = 0.6
+	potDepthFactor    = 0.8
+	groundRootDepthMM = 300
+	groundRootFactor  = 1.0
+	thetaPeat         = 0.30
+	thetaCactus       = 0.15
+	thetaCoir         = 0.35
+	vpdRefKPa         = 1.20
+	et0IndoorRef      = 2.0
+	fDryMin           = 0.5
+	fDryMax           = 2.0
+	projectionDays    = 60
+	meanET0Window     = 14
+	rainLookahead     = 2
+	rainCoverFrac     = 0.7
+	rainMinProb       = 60.0
+	rainStressFrac    = 0.9
+	maxDeferDays      = 2
+	madNoDefer        = 0.35
 )
 
 func thetaAW(s domain.SubstrateKind) float64 {
@@ -39,6 +41,9 @@ func thetaAW(s domain.SubstrateKind) float64 {
 }
 
 func capacityMM(p Params) float64 {
+	if p.InGround {
+		return thetaAW(p.Substrate) * groundRootDepthMM * groundRootFactor
+	}
 	if p.PotDiameterMM <= 0 || !finite(float64(p.PotDiameterMM)) {
 		return 0
 	}

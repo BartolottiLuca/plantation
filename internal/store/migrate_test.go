@@ -28,6 +28,9 @@ func TestMigrateTwiceOnFreshDBLeavesIdenticalState(t *testing.T) {
 	if !strings.Contains(first, "0001_init.sql") {
 		t.Fatalf("schema_migrations missing 0001_init.sql:\n%s", first)
 	}
+	if !strings.Contains(first, "0002_in_ground.sql") {
+		t.Fatalf("schema_migrations missing 0002_in_ground.sql:\n%s", first)
+	}
 	if !strings.Contains(first, "tado_token\tunlinked") {
 		t.Fatalf("seeded tado_token row missing:\n%s", first)
 	}

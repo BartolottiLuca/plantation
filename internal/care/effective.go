@@ -17,6 +17,7 @@ func Effective(p domain.Plant, s domain.Species) Params {
 		DormancyFactor:   s.DormancyFactor,
 		FExposure:        p.FExposure,
 		FRain:            p.FRain,
+		InGround:         p.InGround,
 		PotDiameterMM:    p.PotDiameterMM,
 		AcquiredAt:       p.AcquiredAt,
 	}

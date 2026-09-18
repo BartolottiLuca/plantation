@@ -44,8 +44,15 @@
   </label>
   {{end}}
 
-  <label for="pot_diameter_mm">Pot diameter (mm)
-    <input id="pot_diameter_mm" name="pot_diameter_mm" type="number" min="40" max="2000" required value="{{.Form.PotDiameterMM}}">
+  <fieldset>
+    <legend>Planting</legend>
+    <label class="choice"><input type="radio" name="container" value="pot" {{checked .Form.Container "pot"}}> In a pot</label>
+    <label class="choice container-ground"><input type="radio" name="container" value="ground" {{checked .Form.Container "ground"}}> In the ground</label>
+    {{with fieldErr .Form.Errors "container"}}<span class="error">{{.}}</span>{{end}}
+  </fieldset>
+
+  <label class="pot-diameter" for="pot_diameter_mm">Pot diameter (mm)
+    <input id="pot_diameter_mm" name="pot_diameter_mm" type="number" min="40" max="2000" value="{{.Form.PotDiameterMM}}">
     {{with fieldErr .Form.Errors "pot_diameter_mm"}}<span class="error">{{.}}</span>{{end}}
   </label>
 
