@@ -18,6 +18,7 @@ type Params struct {
 	DormancyFactor   float64
 	FExposure        float64
 	FRain            float64
+	InGround         bool
 	PotDiameterMM    int
 	AcquiredAt       *time.Time
 }

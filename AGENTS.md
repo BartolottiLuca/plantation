@@ -83,9 +83,9 @@ Never delete a species that plants reference. Set `retired: true`.
 
 ## Never commit
 
-Coordinates, the ingress hostname, the Discord webhook URL, Tado tokens, Docker Hub
-credentials, or a real `values.yaml` from the cluster. Placeholders in the repo,
-real values in the cluster.
+The Discord webhook URL, Tado tokens, or Docker Hub credentials. Cluster Helm
+overlays may include timezone, hostname, and coordinates; the plantation chart
+itself only holds placeholders.
 
 ## Definition of done
 

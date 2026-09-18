@@ -110,7 +110,7 @@ func (s *Server) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Sp
 		d, e := care.ScheduleFixed(*sp.Fertilize, domain.Fertilize, events, today)
 		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
 	}
-	if sp.Repot != nil {
+	if sp.Repot != nil && !params.InGround {
 		d, e := care.ScheduleFixed(*sp.Repot, domain.Repot, events, today)
 		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
 	}

@@ -102,7 +102,7 @@ func (l *Loop) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Spec
 		d, e := care.ScheduleFixed(*sp.Fertilize, domain.Fertilize, events, today)
 		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
 	}
-	if sp.Repot != nil && enabled(tasks, domain.Repot, today) {
+	if sp.Repot != nil && !params.InGround && enabled(tasks, domain.Repot, today) {
 		d, e := care.ScheduleFixed(*sp.Repot, domain.Repot, events, today)
 		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
 	}

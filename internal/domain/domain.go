@@ -68,6 +68,7 @@ type Plant struct {
 	Location      Location
 	Place         string
 	TadoRoomID    *string
+	InGround      bool
 	PotDiameterMM int
 	FExposure     float64
 	FRain         float64

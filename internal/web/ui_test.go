@@ -285,6 +285,50 @@ func TestCreateEditDeletePlant(t *testing.T) {
 	assertStatus(t, gone, http.StatusNotFound)
 }
 
+func TestCreateOutdoorInGroundPlant(t *testing.T) {
+	_, db, mux := testUI(t, func(db *memDB, _ *Server) {
+		sp := fixtureSpecies()
+		sp.Repot = &domain.FixedTask{IntervalDays: 730}
+		db.addSpecies(sp)
+	})
+	form := validPlantForm("Lavender")
+	form.Set("location", "outdoor")
+	form.Set("container", "ground")
+	form.Del("pot_diameter_mm")
+	form.Set("f_rain", "0.9")
+	form.Set("f_exposure", "1.3")
+	created := doPOST(t, mux, "/plants/new", form)
+	assertStatus(t, created, http.StatusSeeOther)
+	rows, err := db.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p domain.Plant
+	for _, row := range rows {
+		if row.Plant.Name == "Lavender" {
+			p = row.Plant
+		}
+	}
+	if !p.InGround || p.PotDiameterMM != 0 || p.Location != domain.Outdoor {
+		t.Fatalf("plant = %+v", p)
+	}
+	loc := created.Header().Get("Location")
+	detail := doGET(t, mux, loc)
+	assertContains(t, detail, "Lavender", "in the ground", "90.0 mm")
+	assertNotContains(t, detail, "Repot")
+	edit := doGET(t, mux, loc+"/edit")
+	assertContains(t, edit, `value="ground" checked`)
+}
+
+func TestInGroundRejectedIndoors(t *testing.T) {
+	_, _, mux := testUI(t, nil)
+	form := validPlantForm("Nope")
+	form.Set("container", "ground")
+	rec := doPOST(t, mux, "/plants/new", form)
+	assertStatus(t, rec, http.StatusBadRequest)
+	assertContains(t, rec, "only for outdoor")
+}
+
 func TestCarePostHTMXFragmentAndVoid(t *testing.T) {
 	acquired := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	_, db, mux := testUI(t, nil)
@@ -425,7 +469,7 @@ func TestStaticAssetsAreLocalAndNoIndex(t *testing.T) {
 	assertStatus(t, js, http.StatusOK)
 	assertContains(t, js, "htmx")
 	page := doGET(t, mux, "/plants/new")
-	assertContains(t, page, `src="/static/htmx.min.js"`, `href="/static/style.css"`, `name="color-scheme"`)
+	assertContains(t, page, `src="/static/htmx.min.js"`, `href="/static/style.css"`, `name="color-scheme"`, "In the ground")
 	assertNoExternalAssets(t, page)
 }
 

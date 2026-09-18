@@ -23,6 +23,7 @@ type plantForm struct {
 	Location      string
 	Place         string
 	TadoRoomID    string
+	Container     string
 	PotDiameterMM string
 	FExposure     string
 	FRain         string
@@ -38,6 +39,7 @@ type plantForm struct {
 func blankForm() plantForm {
 	return plantForm{
 		Location:      string(domain.Indoor),
+		Container:     "pot",
 		FExposure:     "1.0",
 		FRain:         "0.0",
 		PotDiameterMM: "180",
@@ -51,10 +53,15 @@ func formFromPlant(p domain.Plant) plantForm {
 		SpeciesSlug:   p.SpeciesSlug,
 		Location:      string(p.Location),
 		Place:         p.Place,
+		Container:     "pot",
 		PotDiameterMM: strconv.Itoa(p.PotDiameterMM),
 		FExposure:     fmt.Sprintf("%.1f", p.FExposure),
 		FRain:         fmt.Sprintf("%.1f", p.FRain),
 		Errors:        map[string]string{},
+	}
+	if p.InGround {
+		f.Container = "ground"
+		f.PotDiameterMM = ""
 	}
 	if p.TadoRoomID != nil {
 		f.TadoRoomID = *p.TadoRoomID
@@ -88,6 +95,7 @@ func parsePlantForm(r *http.Request) plantForm {
 		Location:      strings.TrimSpace(r.FormValue("location")),
 		Place:         strings.TrimSpace(r.FormValue("place")),
 		TadoRoomID:    strings.TrimSpace(r.FormValue("tado_room_id")),
+		Container:     strings.TrimSpace(r.FormValue("container")),
 		PotDiameterMM: strings.TrimSpace(r.FormValue("pot_diameter_mm")),
 		FExposure:     strings.TrimSpace(r.FormValue("f_exposure")),
 		FRain:         strings.TrimSpace(r.FormValue("f_rain")),
@@ -143,11 +151,28 @@ func (f *plantForm) apply(p *domain.Plant) {
 		f.Errors["f_rain"] = "Choose a listed rain exposure"
 	}
 
-	n, err := strconv.Atoi(f.PotDiameterMM)
-	if err != nil || n < 40 || n > 2000 {
-		f.Errors["pot_diameter_mm"] = "Pot diameter must be 40–2000 mm"
-	} else {
-		p.PotDiameterMM = n
+	container := f.Container
+	if container == "" {
+		container = "pot"
+	}
+	switch container {
+	case "ground":
+		if p.Location != domain.Outdoor {
+			f.Errors["container"] = "In the ground is only for outdoor plants"
+			break
+		}
+		p.InGround = true
+		p.PotDiameterMM = 0
+	case "pot":
+		n, err := strconv.Atoi(f.PotDiameterMM)
+		if err != nil || n < 40 || n > 2000 {
+			f.Errors["pot_diameter_mm"] = "Pot diameter must be 40–2000 mm"
+		} else {
+			p.PotDiameterMM = n
+			p.InGround = false
+		}
+	default:
+		f.Errors["container"] = "Choose a pot or in the ground"
 	}
 
 	if f.TadoRoomID == "" {

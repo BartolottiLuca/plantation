@@ -117,7 +117,8 @@ type Plant struct {
     Location        Location
     Place           string           // "living room windowsill", "front bed"
     TadoRoomID      *string
-    PotDiameterMM   int
+    InGround        bool             // outdoor only; pot_diameter_mm is NULL
+    PotDiameterMM   int              // unused when InGround
     FExposure       float64          // 1.0 sheltered, 1.3 full sun / windy
     FRain           float64          // 0.0 indoor or under eaves, 0.6 partly, 0.9 open
     AcquiredAt      *time.Time
@@ -272,7 +273,10 @@ CREATE TABLE plants (
   location         text NOT NULL CHECK (location IN ('indoor','outdoor')),
   place            text NOT NULL DEFAULT '',
   tado_room_id     text,
-  pot_diameter_mm  int NOT NULL CHECK (pot_diameter_mm BETWEEN 40 AND 2000),
+  pot_diameter_mm  int CHECK (
+                     (pot_diameter_mm IS NULL AND location = 'outdoor')
+                     OR (pot_diameter_mm IS NOT NULL AND pot_diameter_mm BETWEEN 40 AND 2000)
+                   ),
   f_exposure       double precision NOT NULL DEFAULT 1.0,
   f_rain           double precision NOT NULL DEFAULT 0.0,
   acquired_at      timestamptz,
@@ -388,6 +392,7 @@ type Params struct {
     DormancyFactor   float64
     FExposure        float64
     FRain            float64
+    InGround         bool
     PotDiameterMM    int
     AcquiredAt       *time.Time
 }
@@ -467,10 +472,24 @@ an indoor plant must never see outdoor ET0, an outdoor plant must never see `f_d
 ### 7.1 Capacity
 
 ```
-C     = θ_aw × D_pot × f_root            [mm]
-D_pot = 0.8 × pot_diameter_mm            (pot depth; diameter is what people know)
-f_root = 0.6                             (effective root zone; water perches below it)
+C     = θ_aw × D × f_root                 [mm]
 ```
+
+A pot:
+
+```
+D      = 0.8 × pot_diameter_mm            (pot depth; diameter is what people know)
+f_root = 0.6                              (effective root zone; water perches below it)
+```
+
+In the ground (outdoor only; `pot_diameter_mm` is NULL, no pot depth):
+
+```
+D      = 300 mm                           (managed root zone)
+f_root = 1.0                              (no perched water table)
+```
+
+In-ground plants do not get the repot task.
 
 | `θ_aw` by substrate | value |
 |---|---|
@@ -727,7 +746,7 @@ be usable at phone width.
 |---|---|---|
 | `/` | GET | dashboard: overdue, due today, upcoming |
 | `/plants` | GET | all plants with status |
-| `/plants/new` | GET, POST | add a plant (species picker, pot size, exposure, room) |
+| `/plants/new` | GET, POST | add a plant (species picker, pot or in-ground, exposure, room) |
 | `/plants/{id}` | GET | detail, explanation panel, care history |
 | `/plants/{id}/edit` | GET, POST | edit, including overrides |
 | `/plants/{id}/delete` | POST | soft delete (`active=false`) |
@@ -763,8 +782,8 @@ an invalid value is a fatal startup error, never a silent default.
 | `PLANTATION_WRITE_TOKEN` | no | — | optional bearer on POST routes |
 | `PLANTATION_LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
-Coordinates, hostname and the webhook URL are supplied on the cluster and must never be
-committed to git.
+The Discord webhook URL and Tado tokens are supplied on the cluster and must never be
+committed to git. Coordinates may live in the cluster Helm overlay.
 
 ## 13. Conventions
 

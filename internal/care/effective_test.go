@@ -74,3 +74,11 @@ func TestEffectiveOverrideWins(t *testing.T) {
 		t.Fatalf("plant factors lost: %+v", got)
 	}
 }
+
+func TestEffectiveCopiesInGround(t *testing.T) {
+	p := domain.Plant{Location: domain.Outdoor, InGround: true, FExposure: 1.3, FRain: 0.9}
+	got := Effective(p, domain.Species{Kc: 0.7, Substrate: domain.Peat, MAD: 0.5, BaseIntervalDays: 9, MinIntervalDays: 4, MaxIntervalDays: 21})
+	if !got.InGround || got.Location != domain.Outdoor {
+		t.Fatalf("in-ground not copied: %+v", got)
+	}
+}

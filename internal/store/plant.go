@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/BartolottiLuca/plantation/internal/domain"
@@ -158,11 +159,18 @@ func plantArgs(p domain.Plant) []any {
 		substrate = string(*p.Overrides.Substrate)
 	}
 	return []any{
-		p.Name, p.SpeciesSlug, string(p.Location), p.Place, p.TadoRoomID, p.PotDiameterMM,
+		p.Name, p.SpeciesSlug, string(p.Location), p.Place, p.TadoRoomID, potArg(p),
 		p.FExposure, p.FRain, p.AcquiredAt, p.Active, p.Notes,
 		p.Overrides.Kc, p.Overrides.MAD, substrate,
 		p.Overrides.BaseIntervalDays, p.Overrides.MinIntervalDays, p.Overrides.MaxIntervalDays,
 	}
+}
+
+func potArg(p domain.Plant) any {
+	if p.InGround {
+		return nil
+	}
+	return p.PotDiameterMM
 }
 
 func scanPlant(row speciesScanner) (domain.Plant, error) {
@@ -170,9 +178,10 @@ func scanPlant(row speciesScanner) (domain.Plant, error) {
 		p         domain.Plant
 		location  string
 		substrate *string
+		pot       sql.NullInt32
 	)
 	err := row.Scan(
-		&p.ID, &p.Name, &p.SpeciesSlug, &location, &p.Place, &p.TadoRoomID, &p.PotDiameterMM,
+		&p.ID, &p.Name, &p.SpeciesSlug, &location, &p.Place, &p.TadoRoomID, &pot,
 		&p.FExposure, &p.FRain, &p.AcquiredAt, &p.Active, &p.Notes,
 		&p.Overrides.Kc, &p.Overrides.MAD, &substrate,
 		&p.Overrides.BaseIntervalDays, &p.Overrides.MinIntervalDays, &p.Overrides.MaxIntervalDays,
@@ -181,6 +190,7 @@ func scanPlant(row speciesScanner) (domain.Plant, error) {
 		return domain.Plant{}, err
 	}
 	p.Location = domain.Location(location)
+	applyPot(&p, pot)
 	if substrate != nil {
 		s := domain.SubstrateKind(*substrate)
 		p.Overrides.Substrate = &s
@@ -188,11 +198,20 @@ func scanPlant(row speciesScanner) (domain.Plant, error) {
 	return p, nil
 }
 
+func applyPot(p *domain.Plant, pot sql.NullInt32) {
+	if !pot.Valid {
+		p.InGround = true
+		return
+	}
+	p.PotDiameterMM = int(pot.Int32)
+}
+
 func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 	var (
 		p           domain.Plant
 		location    string
 		substrate   *string
+		pot         sql.NullInt32
 		s           domain.Species
 		sPlacement  string
 		sSubstrate  string
@@ -204,7 +223,7 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 		repotDays   *int
 	)
 	err := row.Scan(
-		&p.ID, &p.Name, &p.SpeciesSlug, &location, &p.Place, &p.TadoRoomID, &p.PotDiameterMM,
+		&p.ID, &p.Name, &p.SpeciesSlug, &location, &p.Place, &p.TadoRoomID, &pot,
 		&p.FExposure, &p.FRain, &p.AcquiredAt, &p.Active, &p.Notes,
 		&p.Overrides.Kc, &p.Overrides.MAD, &substrate,
 		&p.Overrides.BaseIntervalDays, &p.Overrides.MinIntervalDays, &p.Overrides.MaxIntervalDays,
@@ -218,6 +237,7 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 		return PlantWithSpecies{}, err
 	}
 	p.Location = domain.Location(location)
+	applyPot(&p, pot)
 	if substrate != nil {
 		sk := domain.SubstrateKind(*substrate)
 		p.Overrides.Substrate = &sk
