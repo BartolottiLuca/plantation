@@ -389,7 +389,12 @@ func TestSettingsWriteTokenOnPOST(t *testing.T) {
 		Location:     time.UTC,
 		WriteToken:   "secret",
 		CatalogReady: true,
-		Tado:         &fakeTado{},
+		Tado: &fakeTado{
+			waitFn: func(ctx context.Context, _ tado.DeviceCode) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
 		Notifier:     fakeNotifier{},
 	})
 	mux := http.NewServeMux()
