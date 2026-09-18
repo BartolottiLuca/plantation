@@ -16,7 +16,7 @@ image:
   # Release write-back rewrites this with yq on a versioned release (0.1.0, …).
   # Keep it a plain quoted scalar. Never `latest`. Git tag vX.Y.Z is created by
   # that same Release run.
-  tag: "sha-3751817"
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 config:
