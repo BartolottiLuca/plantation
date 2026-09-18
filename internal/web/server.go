@@ -9,6 +9,7 @@ import (
 	"github.com/BartolottiLuca/plantation/internal/care"
 	"github.com/BartolottiLuca/plantation/internal/climate"
 	"github.com/BartolottiLuca/plantation/internal/domain"
+	"github.com/BartolottiLuca/plantation/internal/notify"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/google/uuid"
 )
@@ -66,7 +67,19 @@ type Server struct {
 	LastDigestFailed func(context.Context) bool
 	Env              EnvFunc
 
-	pages map[string]*template.Template
+	// Settings (C11). Nil optional seams render a disabled explanation, not a 500.
+	Tado              TadoLinker
+	Notifier          notify.Notifier
+	BaseURL           string
+	WeatherAge        WeatherAge
+	Weather           WeatherSeries
+	LocationKey       string
+	Scheduler         SchedulerStat
+	CatalogReady      bool
+	LastNotifications func(context.Context) (NotificationSnapshot, error)
+
+	pages    map[string]*template.Template
+	tadoFlow *tadoFlowState
 }
 
 // NewServer copies opts, parses embedded templates, and defaults a nil Location to UTC.
@@ -80,6 +93,7 @@ func NewServer(opts Server) *Server {
 		s.Location = time.UTC
 	}
 	s.pages = parsePages()
+	s.tadoFlow = &tadoFlowState{}
 	return &s
 }
 
@@ -95,6 +109,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /plants/{id}/delete", s.requireWrite(s.deletePlant))
 	mux.HandleFunc("POST /plants/{id}/care/{kind}", s.requireWrite(s.logCare))
 	mux.HandleFunc("POST /events/{id}/void", s.requireWrite(s.voidEvent))
+	s.registerSettings(mux)
 	mux.Handle("GET /static/", noIndex(func(w http.ResponseWriter, r *http.Request) {
 		http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
 	}))

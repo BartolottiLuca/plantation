@@ -1,0 +1,58 @@
+{{define "title"}}Tado · Settings · Plantation{{end}}
+{{define "content"}}
+<h1>Tado</h1>
+<p class="settings-links">
+  <a href="/settings/tado" aria-current="page">Tado</a>
+  <a href="/settings/diagnostics">Diagnostics</a>
+</p>
+{{template "tado-status" .}}
+{{end}}
+
+{{define "tado-status"}}
+<div id="tado-flow"{{if .Flow.Poll}} hx-get="/settings/tado/status" hx-trigger="every 2s" hx-swap="outerHTML"{{end}}>
+  {{if .Disabled}}
+  <p class="empty">Tado is disabled. Indoor climate will not be fetched from a thermostat.</p>
+  {{else}}
+    {{if eq .State "needs_reauth"}}
+    <p class="warn" role="status">Tado needs to be authorized again. The stored token is no longer valid. Start the device flow below — this works even when the previous login is already dead.</p>
+    {{else if eq .State "unlinked"}}
+    <p class="empty">Tado is not linked. Start the device flow to connect a home.</p>
+    {{else if eq .State "linked"}}
+    <section class="diag" aria-labelledby="tado-linked-heading">
+      <h2 id="tado-linked-heading">Linked</h2>
+      {{if .HomeID}}<p>Home {{.HomeID}}</p>{{end}}
+      {{if .Rooms}}
+      <ul class="plant-list">
+        {{range .Rooms}}<li><strong>{{.Name}}</strong></li>{{end}}
+      </ul>
+      {{else}}
+      <p class="meta">No rooms discovered.</p>
+      {{end}}
+    </section>
+    {{end}}
+
+    {{if .StartError}}<p class="error" role="alert">{{.StartError}}</p>{{end}}
+
+    {{if eq .Flow.Phase "waiting"}}
+    <p class="user-code">{{.Flow.UserCode}}</p>
+    <p><a href="{{.Flow.VerificationURI}}" rel="noopener">Authorize on Tado</a></p>
+    <p class="meta">{{.Flow.Message}}</p>
+    {{else if eq .Flow.Phase "expired"}}
+    <p class="error" role="status">{{.Flow.Message}}</p>
+    {{else if eq .Flow.Phase "denied"}}
+    <p class="error" role="status">{{.Flow.Message}}</p>
+    {{else if eq .Flow.Phase "failed"}}
+    <p class="error" role="alert">{{.Flow.Message}}</p>
+    {{else if eq .Flow.Phase "linked"}}
+    <p class="ok" role="status">{{.Flow.Message}}</p>
+    {{end}}
+
+    {{if not .Flow.Poll}}
+    <form class="plant-form" method="post" action="/settings/tado"
+          hx-post="/settings/tado" hx-target="#tado-flow" hx-swap="outerHTML">
+      <button type="submit">{{if eq .State "needs_reauth"}}Re-link Tado{{else if eq .State "linked"}}Link again{{else}}Link Tado{{end}}</button>
+    </form>
+    {{end}}
+  {{end}}
+</div>
+{{end}}

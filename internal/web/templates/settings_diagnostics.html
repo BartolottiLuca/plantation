@@ -1,0 +1,110 @@
+{{define "title"}}Diagnostics · Settings · Plantation{{end}}
+{{define "content"}}
+<h1>Diagnostics</h1>
+<p class="settings-links">
+  <a href="/settings/tado">Tado</a>
+  <a href="/settings/diagnostics" aria-current="page">Diagnostics</a>
+</p>
+
+<section class="diag" aria-labelledby="diag-weather">
+  <h2 id="diag-weather">Weather</h2>
+  {{if .Weather.Disabled}}
+  <p class="empty">Weather is disabled. Outdoor watering will not use a live forecast.</p>
+  {{else}}
+  <dl>
+    <div><dt>Location key</dt><dd>{{if .Weather.LocationKey}}{{.Weather.LocationKey}}{{else}}unknown{{end}}</dd></div>
+    <div><dt>Last fetch</dt><dd>{{if .Weather.NeverFetched}}never fetched{{else if .Weather.LastFetch}}{{.Weather.LastFetch}}{{else}}unknown{{end}}</dd></div>
+    <div><dt>Outdoor stale</dt><dd>{{if .Weather.OutdoorStale}}yes{{else}}no{{end}}</dd></div>
+    <div><dt>Estimated days</dt><dd>{{if .Weather.Estimated}}yes{{else}}no{{end}}</dd></div>
+  </dl>
+  {{if .Weather.OutdoorStale}}<p class="warn" role="status">Weather is stale. Outdoor watering is using a degraded series.</p>{{end}}
+  {{if .Weather.Unavailable}}<p class="error">Weather data could not be read.</p>{{end}}
+  {{end}}
+</section>
+
+<section class="diag" aria-labelledby="diag-tado">
+  <h2 id="diag-tado">Tado</h2>
+  {{if .Tado.Disabled}}
+  <p class="empty">Tado is disabled.</p>
+  {{else}}
+  <dl>
+    <div><dt>State</dt><dd>{{.Tado.State}}</dd></div>
+    {{if .Tado.AccessCountdown}}<div><dt>Access token</dt><dd>{{.Tado.AccessCountdown}}</dd></div>{{end}}
+    {{if .Tado.RefreshAge}}<div><dt>Refresh token age</dt><dd>{{.Tado.RefreshAge}}</dd></div>{{end}}
+  </dl>
+  {{if .Tado.ReauthWarning}}
+  <p class="warn" role="status">The refresh token is 21 or more days old. Re-link Tado before the 30-day inactivity expiry.</p>
+  {{end}}
+  {{end}}
+</section>
+
+<section class="diag" aria-labelledby="diag-notify">
+  <h2 id="diag-notify">Notifications</h2>
+  {{if .Notify.NoWebhook}}
+  <p class="empty">No Discord webhook is configured. Digests will not be sent.</p>
+  {{end}}
+  {{if .Notify.LastDigestFailed}}
+  <p class="warn" role="status">Last digest failed.</p>
+  {{else if .Notify.LastStatus}}
+  <p>Last digest: {{.Notify.LastStatus}}{{if .Notify.LastAt}} at {{.Notify.LastAt}}{{end}}</p>
+  {{else}}
+  <p class="meta">No digest status recorded.</p>
+  {{end}}
+  {{if .Notify.HistoryUnknown}}
+  <p class="meta">Notification history is unavailable.</p>
+  {{else}}
+  <p>Skipped days this week: {{.Notify.SkippedThisWeek}}</p>
+  {{if .Notify.Failed}}
+  <h3>Failed rows</h3>
+  <ul>
+    {{range .Notify.Failed}}
+    <li>{{.DedupeKey}}{{if .LastError}} — {{.LastError}}{{end}}</li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="meta">No failed notification rows.</p>
+  {{end}}
+  {{end}}
+  <form class="plant-form" method="post" action="/settings/test-notification"
+        hx-post="/settings/test-notification" hx-target="#test-notify-result" hx-swap="innerHTML">
+    <button type="submit">Send test notification</button>
+  </form>
+  <div id="test-notify-result">{{template "test-notification-result" .Test}}</div>
+</section>
+
+<section class="diag" aria-labelledby="diag-catalog">
+  <h2 id="diag-catalog">Catalog</h2>
+  {{if .Catalog.Unavailable}}
+  <p class="error">Catalog could not be read.</p>
+  {{else}}
+  <dl>
+    <div><dt>Species</dt><dd>{{.Catalog.SpeciesCount}}</dd></div>
+    <div><dt>Boot upsert</dt><dd>{{if .Catalog.Ready}}succeeded{{else}}did not succeed{{end}}</dd></div>
+  </dl>
+  {{end}}
+</section>
+
+<section class="diag" aria-labelledby="diag-sched">
+  <h2 id="diag-sched">Scheduler</h2>
+  {{if not .Sched.Running}}
+  <p class="empty">Scheduler is not running on this process.</p>
+  {{else}}
+  <dl>
+    <div><dt>Advisory lock</dt><dd>{{if .Sched.HoldsLock}}this pod holds the lock{{else}}this pod does not hold the lock{{end}}</dd></div>
+    <div><dt>Last tick</dt><dd>{{if .Sched.LastTick}}{{.Sched.LastTick}}{{else}}none yet{{end}}</dd></div>
+  </dl>
+  {{end}}
+</section>
+{{end}}
+
+{{define "test-notification-result"}}
+{{if .NoWebhook}}
+<p class="empty" role="status">No Discord webhook is configured. Nothing was sent.</p>
+{{else if .OK}}
+<p class="ok" role="status">Test notification sent.</p>
+{{else if .Error}}
+<p class="error" role="alert">Test notification failed: {{.Error}}</p>
+{{else if .Attempted}}
+<p class="error" role="alert">Test notification failed.</p>
+{{end}}
+{{end}}

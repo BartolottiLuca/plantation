@@ -206,12 +206,13 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 	tokenRepo := store.NewTadoTokenRepo(pool)
 
 	var weatherSvc *weather.Service
+	var weatherRepo *store.WeatherRepo
 	var weatherAge scheduler.WeatherAge
 	var locationKey string
 	if cfg.WeatherEnabled {
-		repo := store.NewWeatherRepo(pool)
-		weatherSvc = weather.NewService(weather.NewClient(cfg.Timezone), repo, cfg.Latitude, cfg.Longitude, clk, log)
-		weatherAge = repo
+		weatherRepo = store.NewWeatherRepo(pool)
+		weatherSvc = weather.NewService(weather.NewClient(cfg.Timezone), weatherRepo, cfg.Latitude, cfg.Longitude, clk, log)
+		weatherAge = weatherRepo
 		locationKey = fmt.Sprintf("%.3f,%.3f", cfg.Latitude, cfg.Longitude)
 	}
 
@@ -223,11 +224,13 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 	}
 
 	var notifier scheduler.Notifier = &notify.NoopNotifier{}
+	var uiNotify notify.Notifier
 	var sweeper scheduler.Sweeper
 	if cfg.DiscordWebhook != "" {
 		outbox := notify.NewOutboxNotifier(store.NewNotificationRepo(pool), cfg.DiscordWebhook, notify.WithNow(clk.Now))
 		notifier = outbox
 		sweeper = outbox
+		uiNotify = outbox
 	}
 
 	loop := scheduler.New(scheduler.Loop{
@@ -254,14 +257,22 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 	})
 
 	ui := web.NewServer(web.Server{
-		Plants:     plantRepo,
-		Species:    store.NewSpeciesRepo(pool),
-		Events:     eventRepo,
-		Clock:      clk,
-		Location:   cfg.Location,
-		WriteToken: cfg.WriteToken,
-		Rooms:      roomLister(sampler),
-		Env:        loop.PlantEnv,
+		Plants:       plantRepo,
+		Species:      store.NewSpeciesRepo(pool),
+		Events:       eventRepo,
+		Clock:        clk,
+		Location:     cfg.Location,
+		WriteToken:   cfg.WriteToken,
+		Rooms:        roomLister(sampler),
+		Env:          loop.PlantEnv,
+		Tado:         tadoLinker(auth),
+		Notifier:     uiNotify,
+		BaseURL:      cfg.BaseURL,
+		WeatherAge:   webWeatherAge(weatherRepo),
+		Weather:      weatherSeries(weatherSvc),
+		LocationKey:  locationKey,
+		Scheduler:    loop,
+		CatalogReady: true, // startRuntime only runs after a successful upsert
 	})
 	ui.Register(mux)
 
@@ -294,6 +305,27 @@ func asAuth(c *tado.Client) scheduler.TokenRefresher {
 		return nil
 	}
 	return c
+}
+
+func tadoLinker(c *tado.Client) web.TadoLinker {
+	if c == nil {
+		return nil
+	}
+	return c
+}
+
+func weatherSeries(s *weather.Service) web.WeatherSeries {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func webWeatherAge(r *store.WeatherRepo) web.WeatherAge {
+	if r == nil {
+		return nil
+	}
+	return r
 }
 
 // backfillWeather is a one-off wider fetch (default 30 days of history vs.

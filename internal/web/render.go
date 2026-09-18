@@ -16,7 +16,7 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 func parsePages() map[string]*template.Template {
-	names := []string{"dashboard.html", "plants.html", "detail.html", "form.html"}
+	names := []string{"dashboard.html", "plants.html", "detail.html", "form.html", "settings_tado.html", "settings_diagnostics.html"}
 	out := make(map[string]*template.Template, len(names))
 	for _, name := range names {
 		out[name] = template.Must(
