@@ -111,6 +111,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events/{id}/void", s.requireWrite(s.voidEvent))
 	s.registerSettings(mux)
 	mux.Handle("GET /static/", noIndex(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
 	}))
 }
