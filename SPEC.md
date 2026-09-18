@@ -366,8 +366,15 @@ Rules that the schema alone does not express:
   wholesale at every boot and never written at runtime. A species with plants referencing
   it is never deleted — set `retired = true`.
 - `care_events` is append-only. Undo sets `voided_at`; nothing ever issues `DELETE`.
+  Last-water dates can be older than a month (succulents); dropping them would
+  reschedule from `acquired_at` or today.
 - In `weather_daily`, a fresh forecast must never overwrite a stored `observed` row for a
   past date. Reads prefer `observed` when both exist.
+- `weather_daily`, `room_climate_samples`, and `notifications` older than **six
+  months** are deleted by the scheduler. Thirty days would cover the 14-day ET0
+  lookback, but the diagnostics page and Discord ops history are more useful with a
+  season of cache; unbounded growth is the failure mode. Care events stay forever.
+  Notification dedupe keys are dated and never recur.
 
 ## 6. Derived state is computed, never stored
 
@@ -543,6 +550,9 @@ radiator in winter.
   reading taken while a window was open.
 - If the newest sample for the plant's room is older than 3 hours, or the plant has no
   `tado_room_id`, use `f_dry = 1.0` and set `Explanation.IndoorDataStale`.
+- When Tado reports exactly one room, the plant form stores that id and omits the picker.
+  A home with one thermostat has nothing to choose. Multiple rooms still get a select;
+  an unlinked home still gets a text field.
 
 ### 7.4 Calibration scenarios — required tests
 
@@ -654,6 +664,7 @@ of them re-derivable from the database, so a pod restart loses nothing:
 | refresh Tado token | access token within 5 min of expiry, **or** `refresh_obtained_at` older than 7 days |
 | digest + alerts | local wall clock at or past `DIGEST_HOUR` today **and** no `digest:<today>` row |
 | outbox sweep | hourly |
+| purge telemetry | `weather_daily` / `room_climate_samples` / `notifications` older than 6 months |
 
 Expressing the digest that way — rather than a timer aimed at 09:00 — is DST-proof (no
 offset arithmetic), restart-proof (a pod booting at 09:07 sends immediately), and has no
@@ -746,7 +757,7 @@ be usable at phone width.
 |---|---|---|
 | `/` | GET | dashboard: overdue, due today, upcoming |
 | `/plants` | GET | all plants with status |
-| `/plants/new` | GET, POST | add a plant (species picker, pot or in-ground, exposure, room) |
+| `/plants/new` | GET, POST | add a plant (species picker, pot or in-ground, exposure; Tado room only when there is a choice) |
 | `/plants/{id}` | GET | detail, explanation panel, care history |
 | `/plants/{id}/edit` | GET, POST | edit, including overrides |
 | `/plants/{id}/delete` | POST | soft delete (`active=false`) |

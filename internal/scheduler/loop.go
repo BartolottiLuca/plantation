@@ -15,17 +15,18 @@ import (
 )
 
 const (
-	tickInterval      = 60 * time.Second
-	weatherMaxAge     = time.Hour
-	sampleMaxAge      = 30 * time.Minute
-	indoorStaleAfter  = 3 * time.Hour
-	weatherStaleAlert = 24 * time.Hour
-	sweepStaleAfter   = 10 * time.Minute
-	reauthWarnAfter   = 21 * 24 * time.Hour
-	activityTimeout   = 20 * time.Second
-	envLookbackDays   = 90
-	envHorizonDays    = 16
-	heatwaveCelsius   = 32.0
+	tickInterval             = 60 * time.Second
+	weatherMaxAge            = time.Hour
+	sampleMaxAge             = 30 * time.Minute
+	indoorStaleAfter         = 3 * time.Hour
+	weatherStaleAlert        = 24 * time.Hour
+	sweepStaleAfter          = 10 * time.Minute
+	telemetryRetentionMonths = 6
+	reauthWarnAfter          = 21 * 24 * time.Hour
+	activityTimeout          = 20 * time.Second
+	envLookbackDays          = 90
+	envHorizonDays           = 16
+	heatwaveCelsius          = 32.0
 )
 
 // WeatherSource is weather.Service (Refresh + Series). Nil disables weather.
@@ -87,6 +88,11 @@ type Sweeper interface {
 	SweepStale(ctx context.Context, olderThan time.Duration) error
 }
 
+// Retainer is *store.RetentionRepo. Nil skips telemetry purge.
+type Retainer interface {
+	PurgeOlderThan(ctx context.Context, before time.Time) error
+}
+
 // Loop is the scheduler. Construct with New; call Run from cmd.
 type Loop struct {
 	Clock          care.Clock
@@ -109,6 +115,7 @@ type Loop struct {
 	Climate ClimateSource
 	Notify  Notifier
 	Sweep   Sweeper
+	Retain  Retainer
 	Log     *slog.Logger
 
 	// Ticker is the wait between ticks. Tests replace it with a tiny duration
@@ -224,6 +231,7 @@ func (l *Loop) Tick(ctx context.Context) {
 	if now.In(l.loc()).Minute() == 0 {
 		l.runActivity(ctx, "sweep", l.sweep)
 	}
+	l.runActivity(ctx, "purge", l.purgeTelemetry)
 }
 
 func (l *Loop) runActivity(ctx context.Context, name string, fn func(context.Context) error) {

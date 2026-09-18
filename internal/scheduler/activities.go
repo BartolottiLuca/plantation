@@ -129,6 +129,13 @@ func (l *Loop) sweep(ctx context.Context) error {
 	return l.Sweep.SweepStale(ctx, sweepStaleAfter)
 }
 
+func (l *Loop) purgeTelemetry(ctx context.Context) error {
+	if l.Retain == nil {
+		return nil
+	}
+	return l.Retain.PurgeOlderThan(ctx, l.now().AddDate(0, -telemetryRetentionMonths, 0))
+}
+
 func (l *Loop) tadoStatus(ctx context.Context) climate.LinkStatus {
 	if l.Sampler != nil {
 		return l.Sampler.Status(ctx)

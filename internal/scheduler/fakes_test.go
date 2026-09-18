@@ -186,6 +186,21 @@ func (s *fakeSweep) SweepStale(context.Context, time.Duration) error {
 	return s.err
 }
 
+type fakeRetain struct {
+	mu     sync.Mutex
+	n      int
+	before time.Time
+	err    error
+}
+
+func (r *fakeRetain) PurgeOlderThan(_ context.Context, before time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.n++
+	r.before = before
+	return r.err
+}
+
 func testSpecies() domain.Species {
 	return domain.Species{
 		Slug:             "test-shrub",

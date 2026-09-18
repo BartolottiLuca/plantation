@@ -253,6 +253,7 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 		Climate:        climateRepo,
 		Notify:         notifier,
 		Sweep:          sweeper,
+		Retain:         store.NewRetentionRepo(pool),
 		Log:            log,
 	})
 

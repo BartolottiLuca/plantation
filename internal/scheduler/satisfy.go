@@ -20,4 +20,5 @@ var (
 	_ ClimateSource  = (*store.ClimateRepo)(nil)
 	_ Notifier       = (*notify.OutboxNotifier)(nil)
 	_ Sweeper        = (*notify.OutboxNotifier)(nil)
+	_ Retainer       = (*store.RetentionRepo)(nil)
 )

@@ -125,6 +125,7 @@ func TestFailuresDoNotStopOtherActivities(t *testing.T) {
 	wx := &fakeWeather{err: errors.New("open-meteo down")}
 	samp := &fakeSampler{err: errors.New("tado down")}
 	sweep := &fakeSweep{err: errors.New("sweep failed")}
+	retain := &fakeRetain{err: errors.New("purge failed")}
 
 	loop := New(Loop{
 		Clock:          &testClock{t: time.Date(2026, 3, 20, 10, 0, 0, 0, loc)},
@@ -142,6 +143,7 @@ func TestFailuresDoNotStopOtherActivities(t *testing.T) {
 		Events:         &fakeEvents{byPlant: map[uuid.UUID][]domain.CareEvent{}},
 		Notify:         n,
 		Sweep:          sweep,
+		Retain:         retain,
 		Log:            discardLog(),
 	})
 	loop.Tick(context.Background())
@@ -151,6 +153,9 @@ func TestFailuresDoNotStopOtherActivities(t *testing.T) {
 	}
 	if samp.n != 1 {
 		t.Errorf("tado sample attempts = %d, want 1", samp.n)
+	}
+	if retain.n != 1 {
+		t.Errorf("purge attempts = %d, want 1", retain.n)
 	}
 	if len(n.digestSent()) != 1 {
 		t.Fatalf("digest still sent after provider failures, got %v", n.digestSent())
@@ -267,5 +272,25 @@ func TestEmptyDayRecordsSkippedDigest(t *testing.T) {
 	}
 	if !n.has("digest:2026-03-21") {
 		t.Fatal("quiet day must still record digest:today as skipped")
+	}
+}
+
+func TestPurgeTelemetryCutoffIsSixMonths(t *testing.T) {
+	loc := london(t)
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, loc)
+	retain := &fakeRetain{}
+	loop := New(Loop{
+		Clock:    &testClock{t: now},
+		Location: loc,
+		Retain:   retain,
+		Log:      discardLog(),
+	})
+	loop.Tick(context.Background())
+	if retain.n != 1 {
+		t.Fatalf("purge n = %d, want 1", retain.n)
+	}
+	want := now.AddDate(0, -6, 0)
+	if !retain.before.Equal(want) {
+		t.Fatalf("cutoff = %s, want %s", retain.before, want)
 	}
 }

@@ -29,7 +29,9 @@
     {{with fieldErr .Form.Errors "place"}}<span class="error">{{.}}</span>{{end}}
   </label>
 
-  {{if .UseRoomSelect}}
+  {{if eq (len .Rooms) 1}}
+  <input type="hidden" name="tado_room_id" value="{{(index .Rooms 0).RoomID}}">
+  {{else if .UseRoomSelect}}
   <label for="tado_room_id">Tado room
     <select id="tado_room_id" name="tado_room_id">
       <option value="">None</option>

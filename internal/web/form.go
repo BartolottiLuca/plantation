@@ -285,3 +285,18 @@ func (s *Server) listRooms(ctx context.Context) []climate.RoomClimate {
 	}
 	return rooms
 }
+
+func soleTadoRoom(rooms []climate.RoomClimate) (string, bool) {
+	if len(rooms) != 1 || rooms[0].RoomID == "" {
+		return "", false
+	}
+	return rooms[0].RoomID, true
+}
+
+func (s *Server) bindSoleTadoRoom(ctx context.Context, p *domain.Plant) {
+	id, ok := soleTadoRoom(s.listRooms(ctx))
+	if !ok {
+		return
+	}
+	p.TadoRoomID = &id
+}

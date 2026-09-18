@@ -121,6 +121,7 @@ func (s *Server) newPlantPOST(w http.ResponseWriter, r *http.Request) {
 	f := parsePlantForm(r)
 	p := domain.Plant{Active: true}
 	f.apply(&p)
+	s.bindSoleTadoRoom(r.Context(), &p)
 	if err := s.checkSpecies(r.Context(), &f, true, ""); err != nil {
 		s.internal(w, "loading species", err)
 		return
@@ -196,6 +197,7 @@ func (s *Server) editPlantPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	f := parsePlantForm(r)
 	f.apply(&p)
+	s.bindSoleTadoRoom(r.Context(), &p)
 	if err := s.checkSpecies(r.Context(), &f, false, p.SpeciesSlug); err != nil {
 		s.internal(w, "loading species", err)
 		return
@@ -291,6 +293,9 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 		return
 	}
 	rooms := s.listRooms(r.Context())
+	if id, ok := soleTadoRoom(rooms); ok && f.TadoRoomID == "" {
+		f.TadoRoomID = id
+	}
 	nav := "add"
 	if plantID != "" {
 		nav = "plants"
@@ -303,7 +308,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 		Form:          f,
 		Species:       species,
 		Rooms:         rooms,
-		UseRoomSelect: len(rooms) > 0,
+		UseRoomSelect: len(rooms) > 1,
 		AdvancedOpen:  f.advancedOpen(),
 	})
 }

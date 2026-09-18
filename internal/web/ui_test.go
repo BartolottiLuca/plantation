@@ -437,13 +437,41 @@ func TestDigestFailedBanner(t *testing.T) {
 	assertContains(t, rec, "Last digest failed")
 }
 
-func TestRoomPickerWhenListerPresent(t *testing.T) {
+func TestRoomPickerHiddenWhenOnlyOneRoom(t *testing.T) {
 	_, _, mux := testUI(t, func(_ *memDB, s *Server) {
 		s.Rooms = roomList{{RoomID: "living", Name: "Living room", TempC: 21, HumidityPct: 50, ObservedAt: testNow}}
 	})
 	rec := doGET(t, mux, "/plants/new")
 	assertStatus(t, rec, http.StatusOK)
-	assertContains(t, rec, "<select", "Living room", "id=\"tado_room_id\"")
+	assertContains(t, rec, `type="hidden"`, `name="tado_room_id"`, `value="living"`)
+	assertNotContains(t, rec, "Tado room", "Living room")
+}
+
+func TestRoomPickerWhenMultipleRooms(t *testing.T) {
+	_, _, mux := testUI(t, func(_ *memDB, s *Server) {
+		s.Rooms = roomList{
+			{RoomID: "living", Name: "Living room", TempC: 21, HumidityPct: 50, ObservedAt: testNow},
+			{RoomID: "hall", Name: "Hall", TempC: 19, HumidityPct: 48, ObservedAt: testNow},
+		}
+	})
+	rec := doGET(t, mux, "/plants/new")
+	assertStatus(t, rec, http.StatusOK)
+	assertContains(t, rec, "<select", "Living room", "Hall", "id=\"tado_room_id\"")
+}
+
+func TestCreateAssignsSoleTadoRoom(t *testing.T) {
+	_, db, mux := testUI(t, func(_ *memDB, s *Server) {
+		s.Rooms = roomList{{RoomID: "living", Name: "Living room", TempC: 21, HumidityPct: 50, ObservedAt: testNow}}
+	})
+	created := doPOST(t, mux, "/plants/new", validPlantForm("Basil"))
+	assertStatus(t, created, http.StatusSeeOther)
+	rows, err := db.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Plant.TadoRoomID == nil || *rows[0].Plant.TadoRoomID != "living" {
+		t.Fatalf("plant = %+v", rows)
+	}
 }
 
 func TestTadoRoomTextFieldWithoutLister(t *testing.T) {
