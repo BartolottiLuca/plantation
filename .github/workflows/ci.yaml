@@ -46,7 +46,7 @@ jobs:
       # go.mod's `go 1.23` is a minimum, not a pin. Use 1.25 to match the
       # Dockerfile builder: yaml.v3's unpruned go.mod pulls
       # rogpeppe/go-internal (requires go >= 1.25) into `go mod download`.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           cache: true
