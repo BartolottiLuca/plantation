@@ -15,7 +15,7 @@ image:
   repository: CHANGEME/plantation
   # Release rewrites this with yq on every push to main. Keep it a plain quoted
   # scalar. Never `latest`. Git tag vX.Y.Z is created by that same run.
-  tag: "0.1.3"
+  tag: "0.1.4"
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 config:
