@@ -185,7 +185,7 @@ func TestDashboardGroupsOverdueTodayUpcoming(t *testing.T) {
 	if overdueAt < 0 || todayAt < 0 || upAt < 0 {
 		t.Fatalf("missing grouped plants\n%s", body)
 	}
-	if !(overdueAt < todayAt && todayAt < upAt) {
+	if overdueAt >= todayAt || todayAt >= upAt {
 		t.Fatalf("expected overdue, due today, upcoming order")
 	}
 	assertContains(t, rec, "Overdue", "Due today", "Coming up", overdue.ID.String())

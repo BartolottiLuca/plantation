@@ -28,7 +28,7 @@ jobs:
       PLANTATION_TEST_DSN: postgres://postgres:postgres@localhost:5432/plantation_test?sslmode=disable
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -41,14 +41,14 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      # go.mod's `go 1.23` is a minimum, not a pin. Use 1.25 to match the
+      # go.mod's `go 1.23` is a minimum, not a pin. Use 1.27 to match the
       # Dockerfile builder: yaml.v3's unpruned go.mod pulls
       # rogpeppe/go-internal (requires go >= 1.25) into `go mod download`.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.27"
           cache: true
           cache-dependency-path: go.sum
 
@@ -56,9 +56,9 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.64.8
+          version: v2.13.2
 
       - name: go test
         run: go test ./... -race
@@ -68,11 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
-          version: v3.22.0
+          version: v4.3.0
 
       - name: helm lint
         run: helm lint deploy/chart
@@ -82,12 +82,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build image (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
