@@ -425,7 +425,7 @@ func TestStaticAssetsAreLocalAndNoIndex(t *testing.T) {
 	assertStatus(t, js, http.StatusOK)
 	assertContains(t, js, "htmx")
 	page := doGET(t, mux, "/plants/new")
-	assertContains(t, page, `src="/static/htmx.min.js"`, `href="/static/style.css"`, `name="color-scheme"`)
+	assertContains(t, page, `src="/static/htmx.min.js?v=dev"`, `href="/static/style.css?v=dev"`, `name="color-scheme"`)
 	assertNoExternalAssets(t, page)
 }
 

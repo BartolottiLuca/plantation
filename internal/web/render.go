@@ -54,10 +54,13 @@ func checkedAttr(got, want string) string {
 type page struct {
 	DigestFailed bool
 	Nav          string
+	// StaticQuery busts Cloudflare's default cache of .css/.js: those are keyed
+	// by path, so a new image serving the same /static/style.css stays beige.
+	StaticQuery string
 }
 
 func (s *Server) page(r *http.Request, nav string) page {
-	return page{Nav: nav, DigestFailed: s.digestFailed(r.Context())}
+	return page{Nav: nav, DigestFailed: s.digestFailed(r.Context()), StaticQuery: Version}
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
@@ -68,6 +71,7 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data any
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(status)
 	if err := t.ExecuteTemplate(w, "layout", data); err != nil {
 		slog.Error("executing template", "page", name, "err", err)
