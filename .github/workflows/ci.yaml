@@ -28,7 +28,7 @@ jobs:
       PLANTATION_TEST_DSN: postgres://postgres:postgres@localhost:5432/plantation_test?sslmode=disable
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
