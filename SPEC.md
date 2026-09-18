@@ -799,9 +799,11 @@ committed to git.
   a change to a mutable tag. Every push to `main` (except the chart write-back) is a
   release: the workflow reads the latest `vX.Y.Z` tag (first release is `0.1.0`) and
   bumps **major** on `type!:` / `BREAKING CHANGE:`, **minor** on `feat:` / `feat(scope):`,
-  **patch** otherwise. It publishes the image, writes `image.tag` on `main` (what the
-  Argo Application syncs), and pushes git tag `vX.Y.Z`. Do not retag an existing
-  `X.Y.Z`. `workflow_dispatch` is only an override.
+  **patch** otherwise. Renovate squash-merges as `fix(deps): …` (never `feat:`), so a
+  dependency bump — even a minor or major of the library — is always a plantation patch.
+  It publishes the image, writes `image.tag` on `main` (what the Argo Application syncs),
+  and pushes git tag `vX.Y.Z`. Do not retag an existing `X.Y.Z`. `workflow_dispatch` is
+  only an override.
 - **Security prerequisite:** the app has no authentication. Cloudflare Access in front of
   the tunnel is required, not optional — without it every mutation is one misconfiguration
   away from being world-writable, with no audit trail.

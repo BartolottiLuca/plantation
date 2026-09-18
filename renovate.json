@@ -1,6 +1,26 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "internalChecksFilter": "flexible",
+  "prCreation": "immediate",
+  "automergeStrategy": "squash",
+  "postUpdateOptions": ["gomodTidy"],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "fix",
+  "semanticCommitScope": "deps",
+  "packageRules": [
+    {
+      "description": "Automerge patch, minor, and digest once the release is a week old",
+      "matchUpdateTypes": ["patch", "minor", "digest"],
+      "automerge": true,
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Majors stay manual. Always fix(deps) so a merge never cuts a plantation minor/major.",
+      "matchUpdateTypes": ["major", "replacement", "pin", "pinDigest", "lockFileMaintenance"],
+      "semanticCommitType": "fix"
+    }
   ]
 }

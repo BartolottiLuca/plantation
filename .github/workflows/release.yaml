@@ -6,6 +6,8 @@
 #        type!: …  or  BREAKING CHANGE:  → major
 #        feat: …  /  feat(scope): …      → minor
 #        anything else                   → patch
+#   Renovate always commits fix(deps): so its merges are patches, even when the
+#   dependency update itself is a minor or major.
 #   3. Publish docker.io/…/plantation:X.Y.Z and :sha-<short> (never latest).
 #   4. Write image.tag / appVersion on main (Argo syncs that; no App edit).
 #   5. Push annotated git tag vX.Y.Z on the built commit.
