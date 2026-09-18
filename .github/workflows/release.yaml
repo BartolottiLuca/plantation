@@ -3,9 +3,8 @@
 # Loop guards (any one alone is fragile — keep all three):
 # 1. Push the write-back with the default GITHUB_TOKEN, which does not
 #    start new workflow runs.
-# 2. paths-ignore on this workflow: a commit that only touches
-#    deploy/chart/** (including the write-back to values.yaml) does not
-#    rebuild the image. CI still lints chart-only PRs; see ci.yaml.
+# 2. paths-ignore on the write-back file: a commit that only touches
+#    deploy/chart/values.yaml does not rebuild the image.
 # 3. [skip ci] in the bot commit message.
 #
 # <DOCKERHUB_USERNAME> is a repo secret, filled when the Docker Hub
@@ -18,7 +17,8 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - "deploy/chart/**"
+      - "deploy/chart/values.yaml"
+  workflow_dispatch:
 
 permissions: {}
 
