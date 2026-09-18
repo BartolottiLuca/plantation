@@ -15,7 +15,7 @@ placeholders.
 | Value | `values.yaml` key | Notes |
 |---|---|---|
 | Docker Hub username/repo | `image.repository` | e.g. `janedoe/plantation` |
-| Image tag | `image.tag` | Written by C14's CI write-back after each push to `main`; never `latest` |
+| Image tag | `image.tag` | Written by a versioned Release (`0.1.0`, …); never `latest`. A push to `main` only adds `sha-<short>` and does not change this. |
 | Ingress hostname | `ingress.host` (and `config.baseURL`) | Only needed if `ingress.enabled: true`; a Cloudflare Tunnel may target the Service directly instead |
 | IANA timezone | `config.tz` | e.g. `Europe/London` |
 | Digest hour | `config.digestHour` | 0-23, local; defaults to `9` |
@@ -48,8 +48,11 @@ cluster-specific value overrides are wired via `spec.source.helm.valueFiles`.
 
 ## Notes
 
-- `image.tag` is a plain scalar so CI can rewrite it with `yq` (C14) without a
-  templating round-trip.
+- `image.tag` is a plain scalar so Release can rewrite it with `yq` without a
+  templating round-trip. Bump by Actions → Release → Run workflow (`patch` /
+  `minor` / `major`). The workflow increments the latest `vX.Y.Z` tag, writes
+  `image.tag`, and pushes the new git tag. Argo syncs `main`; there is no
+  per-bump edit of the Application manifest.
 - Rendering with `postgresql.enabled: false` drops the CNPG `Cluster` entirely and
   points the Deployment at `externalDatabase.existingSecretName` instead.
 - The app pod may reach `Ready` before CNPG does; `/readyz` (DB ping) fails until

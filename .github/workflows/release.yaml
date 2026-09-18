@@ -1,4 +1,14 @@
-# Release: multi-arch image push + chart tag write-back.
+# Release: multi-arch image push + chart tag write-back + git tag.
+#
+# Semver (what Argo deploys) is published only from a versioned release:
+#   - Actions → Release → Run workflow → bump patch/minor/major
+#     (first release is 0.1.0; later ones increment the latest vX.Y.Z tag)
+#   - optional exact version input, if you need to skip a number
+#   - or: git tag v0.1.1 && git push origin v0.1.1 (still works)
+# The workflow pushes the vX.Y.Z git tag itself after a successful dispatch
+# so you do not tag by hand. GITHUB_TOKEN tag pushes do not start a second run.
+# A push to main still builds an immutable sha-<short> tag, but does not
+# move deploy/chart/values.yaml, so the cluster stays on the last semver.
 #
 # Loop guards (any one alone is fragile — keep all three):
 # 1. Push the write-back with the default GITHUB_TOKEN, which does not
@@ -7,20 +17,38 @@
 #    deploy/chart/values.yaml does not rebuild the image.
 # 3. [skip ci] in the bot commit message.
 #
-# <DOCKERHUB_USERNAME> is a repo secret, filled when the Docker Hub
-# repository exists — do not hard-code a username. The GitHub repo slug
-# is ${{ github.repository }} (no invented owner).
+# Never retag an existing X.Y.Z — bump instead. Never publish `latest`.
 
 name: Release
 
 on:
   push:
     branches: [main]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
     paths-ignore:
       - "deploy/chart/values.yaml"
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Increment from the latest vX.Y.Z tag. First release is always 0.1.0.
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: Optional exact X.Y.Z (ignores bump). Leave empty to auto-bump.
+        required: false
+        type: string
 
 permissions: {}
+
+concurrency:
+  group: plantation-release
+  cancel-in-progress: false
 
 jobs:
   push-image:
@@ -30,20 +58,92 @@ jobs:
     permissions:
       contents: read
     env:
-      # docker.io/<DOCKERHUB_USERNAME>/plantation — secret, not a guess.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/plantation
     outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+      release_tag: ${{ steps.meta.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Immutable image tag
+      - name: Resolve image tags
         id: meta
-        run: echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_BUMP: ${{ inputs.bump }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force origin
+          sha="sha-${GITHUB_SHA::7}"
+          echo "sha_tag=${sha}" >> "$GITHUB_OUTPUT"
 
-      # QEMU is not required: the Dockerfile builds on BUILDPLATFORM and
-      # cross-compiles Go (C12). The final stage only COPY's the binary.
+          latest_semver() {
+            git tag -l 'v*.*.*' \
+              | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' \
+              | sort -V \
+              | tail -n1
+          }
+
+          bump_semver() {
+            local latest="$1" kind="$2"
+            if [ -z "${latest}" ]; then
+              echo "0.1.0"
+              return
+            fi
+            local major="${latest%%.*}"
+            local rest="${latest#*.}"
+            local minor="${rest%%.*}"
+            local patch="${rest#*.}"
+            case "${kind}" in
+              major) major=$((10#${major} + 1)); minor=0; patch=0 ;;
+              minor) minor=$((10#${minor} + 1)); patch=0 ;;
+              patch) patch=$((10#${patch} + 1)) ;;
+              *) echo "unknown bump ${kind}" >&2; return 1 ;;
+            esac
+            echo "${major}.${minor}.${patch}"
+          }
+
+          release=""
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${REF}" != "refs/heads/main" ]; then
+              echo "versioned releases must run from main (got ${REF})" >&2
+              exit 1
+            fi
+            if [ -n "${DISPATCH_VERSION}" ]; then
+              release="${DISPATCH_VERSION#v}"
+            else
+              release="$(bump_semver "$(latest_semver)" "${DISPATCH_BUMP}")"
+            fi
+          elif [ "${REF_TYPE}" = "tag" ]; then
+            release="${REF_NAME#v}"
+          fi
+          if [ -n "${release}" ]; then
+            echo "${release}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              || { echo "version must be X.Y.Z, got ${release}" >&2; exit 1; }
+            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+              existing="$(git ls-remote --tags origin "refs/tags/v${release}")"
+              if [ -n "${existing}" ]; then
+                echo "git tag v${release} already exists; bump instead of reusing" >&2
+                exit 1
+              fi
+            fi
+          fi
+          echo "release_tag=${release}" >> "$GITHUB_OUTPUT"
+          echo "resolved release_tag=${release:-<none>} sha=${sha}"
+
+          tags="${IMAGE}:${sha}"
+          if [ -n "${release}" ]; then
+            tags="${tags},${IMAGE}:${release}"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "version_arg=${release:-${sha}}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
@@ -52,26 +152,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Never tag or push `latest`. ArgoCD cannot detect a change to a
-      # mutable tag, so a `latest` deployment silently never updates
-      # (SPEC.md §14).
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          # Default attestations wrap the index; some cluster runtimes
-          # then fail to pull the tag ArgoCD just synced.
           provenance: false
-          tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.image_tag }}
+          tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            VERSION=${{ steps.meta.outputs.image_tag }}
+            VERSION=${{ steps.meta.outputs.version_arg }}
             COMMIT=${{ github.sha }}
 
   write-back:
-    name: Write tag to chart
+    name: Write semver to chart
     needs: push-image
+    if: needs.push-image.outputs.release_tag != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -79,7 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: main
           fetch-depth: 0
 
       - name: Install yq
@@ -92,45 +188,61 @@ jobs:
           yq --version
 
       # DOCKERHUB_TOKEN is intentionally not in this job.
+      # Argo tracks plantation main; writing image.tag here is what rolls the cluster.
       - name: Commit image.tag and push
         env:
-          IMAGE_TAG: ${{ needs.push-image.outputs.image_tag }}
-          BRANCH: ${{ github.ref_name }}
+          IMAGE_TAG: ${{ needs.push-image.outputs.release_tag }}
         run: |
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Rebase-and-retry: replay the tag edit on latest main so a
-          # concurrent merge does not fail the push, and skip if a newer
-          # image-producing commit already owns the field.
           for attempt in 1 2 3 4 5; do
-            git fetch origin "${BRANCH}"
-            changed="$(git diff --name-only "${GITHUB_SHA}" "origin/${BRANCH}")"
-            if [ -n "${changed}" ] && printf '%s\n' "${changed}" | grep -q -v -E '^deploy/chart/'; then
-              echo "main has newer non-chart commits; their release owns image.tag"
-              exit 0
-            fi
-            git reset --hard "origin/${BRANCH}"
+            git fetch origin main
+            git reset --hard origin/main
             export IMAGE_TAG
             yq -i '.image.tag = strenv(IMAGE_TAG) | .image.tag style="double"' \
               deploy/chart/values.yaml
+            yq -i '.appVersion = strenv(IMAGE_TAG) | .appVersion style="double"' \
+              deploy/chart/Chart.yaml
             got="$(yq '.image.tag' deploy/chart/values.yaml)"
             if [ "${got}" != "${IMAGE_TAG}" ]; then
               echo "yq wrote ${got}, expected ${IMAGE_TAG}" >&2
               exit 1
             fi
-            if git diff --quiet -- deploy/chart/values.yaml; then
+            if git diff --quiet -- deploy/chart/values.yaml deploy/chart/Chart.yaml; then
               echo "image.tag already ${IMAGE_TAG}"
               exit 0
             fi
-            git add deploy/chart/values.yaml
-            git commit -m "chore(chart): set image.tag to ${IMAGE_TAG} [skip ci]"
-            if git push origin "HEAD:${BRANCH}"; then
+            git add deploy/chart/values.yaml deploy/chart/Chart.yaml
+            git commit -m "chore(chart): deploy ${IMAGE_TAG} [skip ci]"
+            if git push origin HEAD:main; then
               exit 0
             fi
             echo "push rejected (attempt ${attempt}); fetching and retrying"
           done
           echo "write-back push failed after 5 attempts" >&2
           exit 1
+
+      # Tag the commit that was built, not the write-back commit. After the chart
+      # is updated so a failed tag can be retried without bumping past this version.
+      - name: Push git tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IMAGE_TAG: ${{ needs.push-image.outputs.release_tag }}
+          BUILT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          existing="$(git ls-remote --tags origin "refs/tags/v${IMAGE_TAG}")"
+          if [ -n "${existing}" ]; then
+            echo "git tag v${IMAGE_TAG} already on origin"
+            exit 0
+          fi
+          git fetch origin "${BUILT_SHA}"
+          git tag -a "v${IMAGE_TAG}" "${BUILT_SHA}" -m "v${IMAGE_TAG}"
+          git push origin "refs/tags/v${IMAGE_TAG}"

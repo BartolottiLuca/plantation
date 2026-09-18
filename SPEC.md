@@ -794,8 +794,13 @@ committed to git.
   connections invalidated by a failover get cycled. Retry transient SQLSTATEs `08xxx`,
   `57P01`, `40001`. Every write is either an append-only event or an idempotent upsert, so
   retries are already safe.
-- Images are tagged `sha-<short>` and are immutable. **Never deploy `latest`** — ArgoCD
-  cannot detect a change to a mutable tag.
+- Images are tagged with an immutable semver (`X.Y.Z`) for what Argo deploys, plus
+  `sha-<short>` for the exact commit. **Never deploy `latest`** — ArgoCD cannot detect
+  a change to a mutable tag. Bump by running **Release** from the Actions UI (`patch` /
+  `minor` / `major`, or an exact `X.Y.Z`). The workflow takes the next number from the
+  latest `vX.Y.Z` git tag (first release is `0.1.0`), publishes the image, writes
+  `image.tag` on `main` (what the Argo Application syncs), and pushes the git tag.
+  Pushing a `vX.Y.Z` tag yourself still works. Do not retag an existing `X.Y.Z`.
 - **Security prerequisite:** the app has no authentication. Cloudflare Access in front of
   the tunnel is required, not optional — without it every mutation is one misconfiguration
   away from being world-writable, with no audit trail.
@@ -811,7 +816,7 @@ committed to git.
 | notifier | a simulated crash between claim and send yields at most one duplicate; empty days record `skipped` |
 | scheduler | a fake `Clock` over 30 days including a DST transition yields exactly one digest per actionable day, zero on empty days, and one alert per forecast frost event regardless of poll count |
 | image | `/healthz` returns 200 with no database present while `/readyz` returns 503 |
-| CI | a push to `main` produces one immutable tag and exactly one write-back commit that does not retrigger the workflow |
+| CI | a versioned Release publishes `X.Y.Z` and `sha-<short>`, writes `image.tag` once, pushes git tag `vX.Y.Z`, and that write-back does not retrigger the workflow |
 
 `go test ./... -race` is the gate. Integration tests that need Postgres read
 `PLANTATION_TEST_DSN` and skip when it is unset.
