@@ -1,15 +1,17 @@
 :root {
-  --bg: #f4efe6;
-  --ink: #1c1917;
-  --muted: #57534e;
-  --card: #fffdf8;
-  --accent: #3f6212;
-  --accent-ink: #fff;
-  --warn-bg: #fef3c7;
-  --warn-ink: #78350f;
-  --danger: #9f1239;
+  color-scheme: dark;
+  --bg: #161411;
+  --ink: #ece7de;
+  --muted: #a39e94;
+  --card: #221f1a;
+  --accent: #8fb03e;
+  --accent-ink: #141210;
+  --warn-bg: #3d2e12;
+  --warn-ink: #fde68a;
+  --danger: #fb7185;
   --banner: #9f1239;
-  --line: #e7e0d4;
+  --banner-ink: #fff7ed;
+  --line: #3a342c;
   --tap: 44px;
   --radius: 12px;
 }
@@ -24,6 +26,7 @@ html,
 body {
   max-width: 100%;
   overflow-x: hidden;
+  background: var(--bg);
 }
 
 body {
@@ -92,7 +95,7 @@ h3 { font-size: 1.05rem; margin: 0 0 0.25rem; }
 
 .banner {
   background: var(--banner);
-  color: #fff;
+  color: var(--banner-ink);
   text-align: center;
   padding: 0.75rem 1rem;
   font-weight: 600;
@@ -287,7 +290,13 @@ form.danger button {
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
-  background: var(--card);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.plant-form input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .plant-form fieldset {
@@ -306,6 +315,7 @@ form.danger button {
 .choice input {
   width: 1.25rem;
   height: 1.25rem;
+  accent-color: var(--accent);
 }
 
 .error {
