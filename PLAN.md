@@ -93,4 +93,7 @@ front of the tunnel** — the app has no authentication of its own.
 
 Candidates, in rough order of value: a care-history chart per plant; seasonal review
 ("these three were consistently late all summer"); propagation and repotting notes;
-per-room grouping in the digest; photos.
+per-room grouping in the digest.
+
+Photos are deliberately absent from that list: SPEC §1 lists them under Non-goals, and
+the spec wins. Wanting them means amending §1 first, not adding a card.

@@ -199,25 +199,25 @@ func (f *plantForm) apply(p *domain.Plant) {
 	}
 }
 
-func optionalFloat(s string, min, max float64, field string, errs map[string]string) *float64 {
+func optionalFloat(s string, lo, hi float64, field string, errs map[string]string) *float64 {
 	if s == "" {
 		return nil
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || v < min || v > max {
-		errs[field] = fmt.Sprintf("Must be between %g and %g", min, max)
+	if err != nil || v < lo || v > hi {
+		errs[field] = fmt.Sprintf("Must be between %g and %g", lo, hi)
 		return nil
 	}
 	return &v
 }
 
-func optionalInt(s string, min, max int, field string, errs map[string]string) *int {
+func optionalInt(s string, lo, hi int, field string, errs map[string]string) *int {
 	if s == "" {
 		return nil
 	}
 	n, err := strconv.Atoi(s)
-	if err != nil || n < min || n > max {
-		errs[field] = fmt.Sprintf("Must be between %d and %d", min, max)
+	if err != nil || n < lo || n > hi {
+		errs[field] = fmt.Sprintf("Must be between %d and %d", lo, hi)
 		return nil
 	}
 	return &n

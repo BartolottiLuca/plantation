@@ -191,3 +191,17 @@ type roomList []climate.RoomClimate
 func (r roomList) Rooms(context.Context) ([]climate.RoomClimate, error) {
 	return r, nil
 }
+
+func (m *memDB) LatestByKindForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error) {
+	out := map[uuid.UUID][]domain.CareEvent{}
+	for _, id := range plantIDs {
+		ev, err := m.LatestByKind(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(ev) > 0 {
+			out[id] = ev
+		}
+	}
+	return out, nil
+}

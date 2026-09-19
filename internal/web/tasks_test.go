@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +32,20 @@ func (m *memTasks) List(_ context.Context, plantID uuid.UUID) ([]store.CareTask,
 	for _, t := range m.rows {
 		if t.PlantID == plantID {
 			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (m *memTasks) ListForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]store.CareTask, error) {
+	out := map[uuid.UUID][]store.CareTask{}
+	for _, id := range plantIDs {
+		rows, err := m.List(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			out[id] = rows
 		}
 	}
 	return out, nil
@@ -168,4 +183,69 @@ func TestPlantDetailWithoutTaskRepoStillRenders(t *testing.T) {
 	p := thirstyPlant(t, db)
 	rec := doGET(t, mux, "/plants/"+p.ID.String())
 	assertStatus(t, rec, http.StatusOK)
+}
+
+// countingEvents counts round trips so the dashboard's query count can be
+// asserted directly rather than inferred.
+type countingEvents struct {
+	CareEventRepo
+	perPlant int
+	batch    int
+}
+
+func (c *countingEvents) LatestByKind(ctx context.Context, id uuid.UUID) ([]domain.CareEvent, error) {
+	c.perPlant++
+	return c.CareEventRepo.LatestByKind(ctx, id)
+}
+
+func (c *countingEvents) LatestByKindForPlants(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error) {
+	c.batch++
+	return c.CareEventRepo.LatestByKindForPlants(ctx, ids)
+}
+
+type countingTasks struct {
+	CareTaskRepo
+	perPlant int
+	batch    int
+}
+
+func (c *countingTasks) List(ctx context.Context, id uuid.UUID) ([]store.CareTask, error) {
+	c.perPlant++
+	return c.CareTaskRepo.List(ctx, id)
+}
+
+func (c *countingTasks) ListForPlants(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]store.CareTask, error) {
+	c.batch++
+	return c.CareTaskRepo.ListForPlants(ctx, ids)
+}
+
+func TestDashboardQueryCountIsFlatInPlantCount(t *testing.T) {
+	var events *countingEvents
+	var tasks *countingTasks
+	_, db, mux := testUI(t, func(db *memDB, s *Server) {
+		events = &countingEvents{CareEventRepo: db}
+		tasks = &countingTasks{CareTaskRepo: newMemTasks()}
+		s.Events = events
+		s.Tasks = tasks
+	})
+	acquired := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		mustCreate(t, db, domain.Plant{
+			Name: "Plant " + strconv.Itoa(i), SpeciesSlug: "monstera-deliciosa",
+			Location: domain.Indoor, PotDiameterMM: 180, FExposure: 1,
+			Active: true, AcquiredAt: &acquired,
+		})
+	}
+
+	rec := doGET(t, mux, "/")
+	assertStatus(t, rec, http.StatusOK)
+
+	if events.perPlant != 0 || tasks.perPlant != 0 {
+		t.Errorf("per-plant reads on the dashboard: %d events, %d tasks (want 0 of each)",
+			events.perPlant, tasks.perPlant)
+	}
+	if events.batch != 1 || tasks.batch != 1 {
+		t.Errorf("batch reads = %d events, %d tasks; want exactly 1 of each for 12 plants",
+			events.batch, tasks.batch)
+	}
 }

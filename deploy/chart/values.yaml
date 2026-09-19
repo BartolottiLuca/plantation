@@ -83,6 +83,12 @@ backup:
   retentionDays: 14
   storageSize: 5Gi
   storageClassName: ""
+  # pg_dump refuses to dump a server newer than itself ("aborting because of
+  # server version mismatch"), and the CNPG image major version is the
+  # operator's default rather than something this chart pins. A newer pg_dump
+  # reads older servers fine, so this must be >= the cluster's major version.
+  # Raise it before the database, never after.
+  image: "postgres:18"
 resources:
   requests:
     cpu: 50m

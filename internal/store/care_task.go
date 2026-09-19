@@ -123,3 +123,39 @@ func scanCareTask(row speciesScanner) (CareTask, error) {
 	t.SnoozedUntil = optionalDate(until)
 	return t, nil
 }
+
+// ListForPlants is the batch form of List. The dashboard schedules every plant
+// on one render, so a per-plant query there is one round trip per plant.
+func (r *CareTaskRepo) ListForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]CareTask, error) {
+	out := map[uuid.UUID][]CareTask{}
+	if len(plantIDs) == 0 {
+		return out, nil
+	}
+	err := Retry(ctx, func(ctx context.Context) error {
+		rows, err := r.pool.Query(ctx, `
+			SELECT id, plant_id, kind, enabled, interval_days_override, snoozed_until
+			FROM care_tasks
+			WHERE plant_id = ANY($1)
+			ORDER BY plant_id, kind`, plantIDs)
+		if err != nil {
+			return fmt.Errorf("listing care tasks: %w", err)
+		}
+		defer rows.Close()
+		clear(out)
+		for rows.Next() {
+			t, err := scanCareTask(rows)
+			if err != nil {
+				return fmt.Errorf("listing care tasks: %w", err)
+			}
+			out[t.PlantID] = append(out[t.PlantID], t)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("listing care tasks: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

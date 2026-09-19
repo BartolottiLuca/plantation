@@ -13,8 +13,11 @@ Single Go binary, Postgres, one pod. No accounts, no app, no cloud service.
 
 ## Status
 
-Greenfield. See [PLAN.md](PLAN.md) for the build order and [SPEC.md](SPEC.md) for the
-full behavioural contract.
+In service. All five phases of [PLAN.md](PLAN.md) are built and deployed; that document
+is now a record of how it was assembled rather than a plan. The behavioural contract is
+[SPEC.md](SPEC.md), which stays authoritative — when the code and the spec disagree, the
+spec wins and the code is wrong. Open findings live in
+[investigation.md](investigation.md).
 
 ## How it decides
 

@@ -38,17 +38,30 @@ func (l *Loop) digestAndAlerts(ctx context.Context) error {
 		return fmt.Errorf("listing plants: %w", err)
 	}
 
-	var tasks []scheduled
+	active := make([]store.PlantWithSpecies, 0, len(rows))
+	ids := make([]uuid.UUID, 0, len(rows))
 	for _, row := range rows {
-		if !row.Plant.Active {
-			continue
+		if row.Plant.Active {
+			active = append(active, row)
+			ids = append(ids, row.Plant.ID)
 		}
-		got, err := l.schedulePlant(ctx, row.Plant, row.Species)
-		if err != nil {
-			l.Log.Error("scheduling plant", "err", err)
-			continue
+	}
+	events, err := l.Events.LatestByKindForPlants(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("latest care events: %w", err)
+	}
+	controls, err := l.taskControlsForPlants(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("listing care tasks: %w", err)
+	}
+
+	var tasks []scheduled
+	for _, row := range active {
+		env := l.PlantEnv(ctx, row.Plant, row.Species)
+		params := care.Effective(row.Plant, row.Species)
+		for _, t := range care.ScheduleAll(params, row.Species, events[row.Plant.ID], env, controls[row.Plant.ID], today) {
+			tasks = append(tasks, scheduled{Plant: row.Plant, Species: row.Species, Due: t.Due, Expl: t.Expl})
 		}
-		tasks = append(tasks, got...)
 	}
 
 	l.sendAlerts(ctx, today, rows, tasks)
@@ -77,26 +90,17 @@ func (l *Loop) digestAndAlerts(ctx context.Context) error {
 	return nil
 }
 
-func (l *Loop) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Species) ([]scheduled, error) {
-	events, err := l.Events.LatestByKind(ctx, p.ID)
+func (l *Loop) taskControlsForPlants(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]care.TaskControl, error) {
+	out := map[uuid.UUID][]care.TaskControl{}
+	if l.Tasks == nil || len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := l.Tasks.ListForPlants(ctx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("latest care events: %w", err)
+		return nil, err
 	}
-	today := l.today()
-	env := l.PlantEnv(ctx, p, sp)
-	params := care.Effective(p, sp)
-
-	var tasks []store.CareTask
-	if l.Tasks != nil {
-		tasks, err = l.Tasks.List(ctx, p.ID)
-		if err != nil {
-			return nil, fmt.Errorf("listing care tasks: %w", err)
-		}
-	}
-
-	var out []scheduled
-	for _, t := range care.ScheduleAll(params, sp, events, env, taskControls(tasks), today) {
-		out = append(out, scheduled{Plant: p, Species: sp, Due: t.Due, Expl: t.Expl})
+	for id, tasks := range rows {
+		out[id] = taskControls(tasks)
 	}
 	return out, nil
 }

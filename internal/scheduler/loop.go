@@ -62,14 +62,15 @@ type PlantLister interface {
 	List(ctx context.Context) ([]store.PlantWithSpecies, error)
 }
 
-// EventSource is *store.CareEventRepo.LatestByKind.
+// EventSource is *store.CareEventRepo. The digest schedules every plant on one
+// tick, so it reads the whole set in one query rather than one per plant.
 type EventSource interface {
-	LatestByKind(ctx context.Context, plantID uuid.UUID) ([]domain.CareEvent, error)
+	LatestByKindForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error)
 }
 
-// TaskLister is *store.CareTaskRepo.List. Nil treats every catalog task as enabled.
+// TaskLister is *store.CareTaskRepo. Nil treats every catalog task as enabled.
 type TaskLister interface {
-	List(ctx context.Context, plantID uuid.UUID) ([]store.CareTask, error)
+	ListForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]store.CareTask, error)
 }
 
 // ClimateSource is *store.ClimateRepo.

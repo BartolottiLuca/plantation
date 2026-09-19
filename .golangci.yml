@@ -4,6 +4,7 @@ run:
 linters:
   enable:
     - errorlint
+    - predeclared
     - revive
   settings:
     revive:

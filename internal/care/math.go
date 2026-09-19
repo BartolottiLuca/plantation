@@ -107,15 +107,15 @@ func clamp(v, lo, hi float64) float64 {
 	return v
 }
 
-func clampDeficit(d, cap float64) float64 {
+func clampDeficit(d, capMM float64) float64 {
 	if !finite(d) || d < 0 {
 		return 0
 	}
-	if !finite(cap) || cap <= 0 {
+	if !finite(capMM) || capMM <= 0 {
 		return 0
 	}
-	if d > cap {
-		return cap
+	if d > capMM {
+		return capMM
 	}
 	return d
 }
@@ -124,14 +124,14 @@ func finite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
-func normalizeBounds(min, max int) (int, int) {
-	if min < 1 {
-		min = 1
+func normalizeBounds(lo, hi int) (int, int) {
+	if lo < 1 {
+		lo = 1
 	}
-	if max < min {
-		max = min
+	if hi < lo {
+		hi = lo
 	}
-	return min, max
+	return lo, hi
 }
 
 func civilDate(t time.Time) domain.Date {

@@ -126,14 +126,14 @@ func envOr(key, fallback string) string {
 	return v
 }
 
-func envInt(key string, fallback, min, max int) (int, error) {
+func envInt(key string, fallback, lo, hi int) (int, error) {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
 		return fallback, nil
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < min || n > max {
-		return 0, fmt.Errorf("%s must be an integer %d–%d, got %q", key, min, max, raw)
+	if err != nil || n < lo || n > hi {
+		return 0, fmt.Errorf("%s must be an integer %d–%d, got %q", key, lo, hi, raw)
 	}
 	return n, nil
 }

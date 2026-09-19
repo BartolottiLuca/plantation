@@ -14,8 +14,8 @@ func ScheduleWater(p Params, events []domain.CareEvent, env EnvSeries, today dom
 		IndoorDataStale: env.IndoorDataStale,
 	}
 
-	cap := capacityMM(p)
-	expl.CapacityMM = cap
+	capMM := capacityMM(p)
+	expl.CapacityMM = capMM
 	mad := p.MAD
 	if !finite(mad) || mad <= 0 {
 		mad = 0.5
@@ -23,15 +23,15 @@ func ScheduleWater(p Params, events []domain.CareEvent, env EnvSeries, today dom
 	if mad > 1 {
 		mad = 1
 	}
-	threshold := mad * cap
+	threshold := mad * capMM
 	expl.ThresholdMM = threshold
 
 	series, ok := buildSeries(p, env, start, today)
-	if !ok || cap <= 0 || !finite(cap) {
+	if !ok || capMM <= 0 || !finite(capMM) {
 		return baseIntervalDue(p, start, today, minI, maxI, expl)
 	}
 
-	dueOn, deficit, meanETc, rainMM, clampedBy, deferred, deferReason := project(p, series, start, today, cap, threshold)
+	dueOn, deficit, meanETc, rainMM, clampedBy, deferred, deferReason := project(p, series, start, today, capMM, threshold)
 	expl.Mode = ModeWaterBalance
 	expl.DeficitMM = deficit
 	expl.MeanETcMMPerDay = meanETc
@@ -39,8 +39,8 @@ func ScheduleWater(p Params, events []domain.CareEvent, env EnvSeries, today dom
 	expl.ClampedBy = clampedBy
 	expl.Deferred = deferred
 	expl.DeferredReason = deferReason
-	if cap > 0 && finite(cap) {
-		expl.DepletionPct = deficit / cap
+	if capMM > 0 && finite(capMM) {
+		expl.DepletionPct = deficit / capMM
 	}
 
 	interval := dueOn.Sub(start)
@@ -209,7 +209,7 @@ func trailingObservedMean(days []DayEnv, today domain.Date) (float64, bool) {
 	return sum / float64(n), true
 }
 
-func project(p Params, series map[string]envDay, start, today domain.Date, cap, threshold float64) (due domain.Date, deficit, meanETc, rainMM float64, clampedBy string, deferred bool, deferReason string) {
+func project(p Params, series map[string]envDay, start, today domain.Date, capMM, threshold float64) (due domain.Date, deficit, meanETc, rainMM float64, clampedBy string, deferred bool, deferReason string) {
 	horizon := today.AddDays(projectionDays)
 	var d float64
 	// d keeps integrating past today to find the crossing day, so it ends the
@@ -260,7 +260,7 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 		if !finite(rain) || rain < 0 {
 			rain = 0
 		}
-		d = clampDeficit(d+etc-rain, cap)
+		d = clampDeficit(d+etc-rain, capMM)
 
 		if d+1e-12 >= threshold {
 			if !inRun {
@@ -296,7 +296,7 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 	switch {
 	case todayInRun:
 		dueOn = todayRunStart
-		def, reason, rEff := evaluateDeferral(p, series, todayRunStart, todayRunDeficit, cap)
+		def, reason, rEff := evaluateDeferral(p, series, todayRunStart, todayRunDeficit, capMM)
 		// A deferral anchored to a crossing already past may have expired; the
 		// plant is then plainly overdue and the window does not re-open.
 		if def > 0 && !todayRunStart.AddDays(def).Before(today) {
@@ -316,7 +316,7 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 
 // evaluateDeferral reads the lookahead from `from`, the crossing day, so the
 // decision stays pinned to the due event instead of sliding forward.
-func evaluateDeferral(p Params, series map[string]envDay, from domain.Date, dNow, cap float64) (days int, reason string, rEff float64) {
+func evaluateDeferral(p Params, series map[string]envDay, from domain.Date, dNow, capMM float64) (days int, reason string, rEff float64) {
 	if p.MAD <= madNoDefer {
 		return 0, "", 0
 	}
@@ -349,7 +349,7 @@ func evaluateDeferral(p Params, series map[string]envDay, from domain.Date, dNow
 	if maxProb < rainMinProb {
 		return 0, "", rEff
 	}
-	if dNow+etcAhead >= rainStressFrac*cap {
+	if dNow+etcAhead >= rainStressFrac*capMM {
 		return 0, "", rEff
 	}
 
@@ -365,7 +365,7 @@ func evaluateDeferral(p Params, series map[string]envDay, from domain.Date, dNow
 	}
 	r1 := fr * p1 * (pr1 / 100)
 	etc1 := etcMM(p, day1.et0, from.AddDays(1).Month)
-	if r1 >= rainCoverFrac*dNow && pr1 >= rainMinProb && dNow+etc1 < rainStressFrac*cap {
+	if r1 >= rainCoverFrac*dNow && pr1 >= rainMinProb && dNow+etc1 < rainStressFrac*capMM {
 		return 1, fmt.Sprintf("%.0f mm rain forecast %s at %.0f%%", r1, weekday(from.AddDays(1)), pr1), r1
 	}
 	return maxDeferDays, fmt.Sprintf("%.0f mm rain forecast over two days (max %.0f%%)", rEff, maxProb), rEff

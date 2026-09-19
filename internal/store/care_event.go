@@ -134,3 +134,40 @@ func scanCareEvent(row speciesScanner) (domain.CareEvent, error) {
 	e.VoidedAt = voided
 	return e, nil
 }
+
+// LatestByKindForPlants is the batch form of LatestByKind: the newest
+// non-voided event per (plant, kind) for every plant named.
+func (r *CareEventRepo) LatestByKindForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error) {
+	out := map[uuid.UUID][]domain.CareEvent{}
+	if len(plantIDs) == 0 {
+		return out, nil
+	}
+	err := Retry(ctx, func(ctx context.Context) error {
+		rows, err := r.pool.Query(ctx, `
+			SELECT DISTINCT ON (plant_id, kind)
+				id, plant_id, kind, done_at, note, source, voided_at
+			FROM care_events
+			WHERE plant_id = ANY($1) AND voided_at IS NULL
+			ORDER BY plant_id, kind, done_at DESC, id DESC`, plantIDs)
+		if err != nil {
+			return fmt.Errorf("latest care events: %w", err)
+		}
+		defer rows.Close()
+		clear(out)
+		for rows.Next() {
+			e, err := scanCareEvent(rows)
+			if err != nil {
+				return fmt.Errorf("latest care events: %w", err)
+			}
+			out[e.PlantID] = append(out[e.PlantID], e)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("latest care events: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

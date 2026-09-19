@@ -263,9 +263,9 @@ func TestServiceSeriesStaleCacheFillsMissingDaysWithTrailingMean(t *testing.T) {
 		t.Fatalf("len(Days) = %d, want 2", len(series.Days))
 	}
 
-	real := series.Days[0]
-	if real.Date != d2 || real.Estimated || real.ET0MM != obs2 {
-		t.Errorf("Days[0] = %+v, want real cached day %s ET0 %v not estimated", real, d2, obs2)
+	observed := series.Days[0]
+	if observed.Date != d2 || observed.Estimated || observed.ET0MM != obs2 {
+		t.Errorf("Days[0] = %+v, want observed cached day %s ET0 %v not estimated", observed, d2, obs2)
 	}
 
 	filled := series.Days[1]

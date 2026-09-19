@@ -43,7 +43,7 @@ spec:
             fsGroup: 999
           containers:
             - name: pg-dump
-              image: "postgres:17"
+              image: {{ .Values.backup.image | quote }}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

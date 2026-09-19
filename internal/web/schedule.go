@@ -118,6 +118,10 @@ func (s *Server) taskControls(ctx context.Context, plantID uuid.UUID) ([]care.Ta
 	if err != nil {
 		return nil, fmt.Errorf("listing care tasks: %w", err)
 	}
+	return toControls(rows), nil
+}
+
+func toControls(rows []store.CareTask) []care.TaskControl {
 	out := make([]care.TaskControl, 0, len(rows))
 	for _, t := range rows {
 		out = append(out, care.TaskControl{
@@ -127,17 +131,52 @@ func (s *Server) taskControls(ctx context.Context, plantID uuid.UUID) ([]care.Ta
 			SnoozedUntil:         t.SnoozedUntil,
 		})
 	}
+	return out
+}
+
+// scheduleRows schedules a whole list with two queries rather than two per
+// plant: the dashboard renders every plant at once, so per-plant reads here are
+// one round trip each.
+func (s *Server) scheduleRows(ctx context.Context, rows []store.PlantWithSpecies) ([]scheduled, error) {
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.Plant.ID)
+	}
+	events, err := s.Events.LatestByKindForPlants(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("latest care events: %w", err)
+	}
+	controls, err := s.taskControlsForPlants(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	today := s.today()
+	var out []scheduled
+	for _, row := range rows {
+		if row.Species.Slug == "" {
+			continue
+		}
+		params := care.Effective(row.Plant, row.Species)
+		env := s.envFor(ctx, row.Plant, row.Species)
+		for _, t := range care.ScheduleAll(params, row.Species, events[row.Plant.ID], env, controls[row.Plant.ID], today) {
+			out = append(out, scheduled{Plant: row.Plant, Species: row.Species, Due: t.Due, Expl: t.Expl})
+		}
+	}
 	return out, nil
 }
 
-func (s *Server) scheduleRows(ctx context.Context, rows []store.PlantWithSpecies) ([]scheduled, error) {
-	var out []scheduled
-	for _, row := range rows {
-		tasks, err := s.schedulePlant(ctx, row.Plant, row.Species)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, tasks...)
+func (s *Server) taskControlsForPlants(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]care.TaskControl, error) {
+	out := map[uuid.UUID][]care.TaskControl{}
+	if s.Tasks == nil || len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.Tasks.ListForPlants(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("listing care tasks: %w", err)
+	}
+	for id, tasks := range rows {
+		out[id] = toControls(tasks)
 	}
 	return out, nil
 }

@@ -34,6 +34,7 @@ type CareEventRepo interface {
 	Add(ctx context.Context, e domain.CareEvent) (domain.CareEvent, error)
 	Void(ctx context.Context, id int64) error
 	LatestByKind(ctx context.Context, plantID uuid.UUID) ([]domain.CareEvent, error)
+	LatestByKindForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error)
 	SinceDate(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind, from domain.Date) ([]domain.CareEvent, error)
 }
 
@@ -42,6 +43,7 @@ type CareEventRepo interface {
 // enabled, which is what a boot without the repo wired used to do implicitly.
 type CareTaskRepo interface {
 	List(ctx context.Context, plantID uuid.UUID) ([]store.CareTask, error)
+	ListForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]store.CareTask, error)
 	Upsert(ctx context.Context, t store.CareTask) (store.CareTask, error)
 }
 

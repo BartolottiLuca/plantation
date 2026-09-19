@@ -233,3 +233,18 @@ func testPlant(id uuid.UUID, watered time.Time) store.PlantWithSpecies {
 		Species: testSpecies(),
 	}
 }
+
+func (e *fakeEvents) LatestByKindForPlants(_ context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.err != nil {
+		return nil, e.err
+	}
+	out := map[uuid.UUID][]domain.CareEvent{}
+	for _, id := range plantIDs {
+		if ev, ok := e.byPlant[id]; ok {
+			out[id] = ev
+		}
+	}
+	return out, nil
+}

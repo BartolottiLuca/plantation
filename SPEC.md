@@ -67,6 +67,9 @@ this section.
 
 ```go
 type Location string        // "indoor" | "outdoor"
+// `inspect` is log-only: it can be recorded and appears in the care history,
+// but no species field drives it and nothing schedules it. There is no physics
+// and no defensible fixed interval for "have a look at it".
 type TaskKind string        // "water" | "prune" | "fertilize" | "repot" | "inspect"
 type SubstrateKind string   // "peat" | "cactus" | "coir"
 
@@ -82,7 +85,6 @@ func (d Date) AddDays(n int) Date
 func (d Date) Sub(o Date) int      // whole days, d - o
 func (d Date) Before(o Date) bool
 func (d Date) String() string      // "2026-09-11"
-
 type Species struct {
     Slug             string          // stable identity, e.g. "monstera-deliciosa"
     CommonName       string
