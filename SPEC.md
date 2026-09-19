@@ -531,6 +531,16 @@ Beyond the forecast horizon, extrapolate with the trailing 14-day mean observed 
 zero rain. Cap projection at 60 days and report "due in more than 60 days" rather than
 inventing a date for a dormant cactus; set `ClampedBy = "projection_cap"`.
 
+Due-ness is a property of **today's** reservoir, not of the first crossing ever recorded.
+`D` can fall as well as rise: rain that lands after a plant became due refills the
+reservoir, and a plant whose deficit is back below `MAD × C` is no longer due, however
+long ago it first crossed. The engine therefore tracks the *current* run of consecutive
+at-or-above-threshold days and anchors the due date to the start of that run — which
+gives correct overdue-ness for a plant that has genuinely been dry for a week, while a
+plant that was rained on stops being due the moment the reservoir refills. Anchoring to
+the first crossing instead reports a freshly rained-on plant as overdue at 7 % depletion,
+and the explanation contradicts itself: *"deficit 2.0 of 28.8 mm — overdue"*.
+
 ### 7.3 Indoor ET0 from Tado
 
 ```
@@ -572,7 +582,18 @@ stated value. They catch every future sign error and unit mix-up.
 
 ### 7.5 Wait-for-rain
 
-Evaluated only on the day a plant becomes due. With a two-day lookahead:
+Evaluated on the **crossing day** — the first day of the current at-or-above-threshold run
+defined in §7.2 — and only while the plant is still due as of today. `D_now` and the
+two-day lookahead are both read from that crossing day, not from today.
+
+Anchoring matters because the engine is stateless and recomputes from scratch every read.
+Evaluating against today instead would make a deferral last exactly one day: a plant that
+said *"deferred to Thursday"* on Wednesday would find its crossing in the past on Thursday,
+skip the deferral entirely, and report overdue on the very morning it was waiting for. The
+anchor is fixed to the crossing event, so it cannot walk forward with today — once
+`crossing + deferral` is past, the plant is plainly overdue and the window cannot re-open.
+
+With a two-day lookahead:
 
 ```
 R_eff = Σ_{i=1..2}  f_rain × P_i × (p_i / 100)     [mm]

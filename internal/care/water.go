@@ -218,8 +218,19 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 	var todayDeficit float64
 	var etcSum float64
 	etcN := 0
-	becameDue := false
-	dueOn := horizon
+
+	// The current run of at-or-above-threshold days (SPEC §7.2). Rain can end a
+	// run, so the run in progress on `today` — not the first crossing ever — is
+	// what makes a plant due, and is what a deferral anchors to.
+	inRun := false
+	var runStart domain.Date
+	var runStartDeficit float64
+	todayInRun := false
+	var todayRunStart domain.Date
+	var todayRunDeficit float64
+	futureCrossSet := false
+	var futureCross domain.Date
+	var dueOn domain.Date
 
 	for day := start; !horizon.Before(day); day = day.AddDays(1) {
 		if day.Before(start) {
@@ -250,25 +261,29 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 			rain = 0
 		}
 		d = clampDeficit(d+etc-rain, cap)
+
+		if d+1e-12 >= threshold {
+			if !inRun {
+				inRun = true
+				runStart = day
+				runStartDeficit = d
+			}
+		} else {
+			inRun = false
+		}
+
 		if day == today {
 			todayDeficit = d
+			todayInRun = inRun
+			todayRunStart = runStart
+			todayRunDeficit = runStartDeficit
 		}
 		if !day.Before(today) {
 			etcSum += etc
 			etcN++
-		}
-
-		if !becameDue && d+1e-12 >= threshold {
-			becameDue = true
-			dueOn = day
-			if day == today {
-				def, reason, rEff := evaluateDeferral(p, series, day, d, cap, etc)
-				if def > 0 {
-					dueOn = day.AddDays(def)
-					deferred = true
-					deferReason = reason
-					rainMM = rEff
-				}
+			if !futureCrossSet && d+1e-12 >= threshold {
+				futureCrossSet = true
+				futureCross = day
 			}
 		}
 	}
@@ -277,14 +292,31 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 		meanETc = etcSum / float64(etcN)
 	}
 	deficit = todayDeficit
-	if !becameDue {
+
+	switch {
+	case todayInRun:
+		dueOn = todayRunStart
+		def, reason, rEff := evaluateDeferral(p, series, todayRunStart, todayRunDeficit, cap)
+		// A deferral anchored to a crossing already past may have expired; the
+		// plant is then plainly overdue and the window does not re-open.
+		if def > 0 && !todayRunStart.AddDays(def).Before(today) {
+			dueOn = todayRunStart.AddDays(def)
+			deferred = true
+			deferReason = reason
+			rainMM = rEff
+		}
+	case futureCrossSet:
+		dueOn = futureCross
+	default:
 		dueOn = horizon
 		clampedBy = ClampProjectionCap
 	}
 	return dueOn, deficit, meanETc, rainMM, clampedBy, deferred, deferReason
 }
 
-func evaluateDeferral(p Params, series map[string]envDay, today domain.Date, dNow, cap, _ float64) (days int, reason string, rEff float64) {
+// evaluateDeferral reads the lookahead from `from`, the crossing day, so the
+// decision stays pinned to the due event instead of sliding forward.
+func evaluateDeferral(p Params, series map[string]envDay, from domain.Date, dNow, cap float64) (days int, reason string, rEff float64) {
 	if p.MAD <= madNoDefer {
 		return 0, "", 0
 	}
@@ -295,7 +327,7 @@ func evaluateDeferral(p Params, series map[string]envDay, today domain.Date, dNo
 	var etcAhead float64
 	var maxProb float64
 	for i := 1; i <= rainLookahead; i++ {
-		day := today.AddDays(i)
+		day := from.AddDays(i)
 		ev := series[day.String()]
 		pmm := ev.precip
 		if !finite(pmm) || pmm < 0 {
@@ -322,7 +354,7 @@ func evaluateDeferral(p Params, series map[string]envDay, today domain.Date, dNo
 	}
 
 	// Prefer a 1-day deferral when the first day alone satisfies the rain cover.
-	day1 := series[today.AddDays(1).String()]
+	day1 := series[from.AddDays(1).String()]
 	p1 := day1.precip
 	if !finite(p1) || p1 < 0 {
 		p1 = 0
@@ -332,9 +364,9 @@ func evaluateDeferral(p Params, series map[string]envDay, today domain.Date, dNo
 		pr1 = 0
 	}
 	r1 := fr * p1 * (pr1 / 100)
-	etc1 := etcMM(p, day1.et0, today.AddDays(1).Month)
+	etc1 := etcMM(p, day1.et0, from.AddDays(1).Month)
 	if r1 >= rainCoverFrac*dNow && pr1 >= rainMinProb && dNow+etc1 < rainStressFrac*cap {
-		return 1, fmt.Sprintf("%.0f mm rain forecast %s at %.0f%%", r1, weekday(today.AddDays(1)), pr1), r1
+		return 1, fmt.Sprintf("%.0f mm rain forecast %s at %.0f%%", r1, weekday(from.AddDays(1)), pr1), r1
 	}
 	return maxDeferDays, fmt.Sprintf("%.0f mm rain forecast over two days (max %.0f%%)", rEff, maxProb), rEff
 }

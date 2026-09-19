@@ -553,3 +553,108 @@ func TestExplanationNeverContradictsDueDate(t *testing.T) {
 		}
 	}
 }
+
+// outdoorPlant is the 40 cm peat pot used by the run/deferral tests:
+// C = 0.30 × (0.8 × 400) × 0.6 = 57.6 mm, threshold = 28.8 mm.
+func outdoorPlant() Params {
+	return Params{
+		Location: domain.Outdoor, Kc: 1, Substrate: domain.Peat, MAD: 0.5,
+		BaseIntervalDays: 3, MinIntervalDays: 1, MaxIntervalDays: 90,
+		FExposure: 1, FRain: 0.9, PotDiameterMM: 400,
+	}
+}
+
+func wateredOn(d domain.Date) []domain.CareEvent {
+	return []domain.CareEvent{{
+		Kind:   domain.Water,
+		DoneAt: time.Date(d.Year, d.Month, d.Day, 8, 0, 0, 0, time.UTC),
+	}}
+}
+
+func TestRainRefillEndsTheDueRun(t *testing.T) {
+	// Crossing the threshold does not make a plant due forever: rain that
+	// lands afterwards refills the reservoir and the run ends (SPEC §7.2).
+	today := domain.Date{Year: 2026, Month: time.June, Day: 15}
+	start := today.AddDays(-5)
+	days := []DayEnv{
+		{Date: start, Observed: true},
+		{Date: today.AddDays(-4), ET0MM: 15, Observed: true},
+		{Date: today.AddDays(-3), ET0MM: 15, Observed: true},              // d = 30, crosses 28.8
+		{Date: today.AddDays(-2), ET0MM: 1, PrecipMM: 40, Observed: true}, // 36 mm lands: refilled
+		{Date: today.AddDays(-1), ET0MM: 1, Observed: true},
+		{Date: today, ET0MM: 1, Observed: true},
+	}
+	for i := 1; i <= 40; i++ {
+		days = append(days, DayEnv{Date: today.AddDays(i), ET0MM: 1})
+	}
+	due, expl := ScheduleWater(outdoorPlant(), wateredOn(start), EnvSeries{Days: days}, today)
+	if due.Status == StatusOverdue {
+		t.Errorf("overdue at %.1f mm of %.1f mm after 36 mm of rain: %q",
+			expl.DeficitMM, expl.ThresholdMM, expl.Summary)
+	}
+	if expl.DeficitMM >= expl.ThresholdMM {
+		t.Errorf("deficit %.1f still ≥ threshold %.1f after rain", expl.DeficitMM, expl.ThresholdMM)
+	}
+}
+
+func TestDeferralIsAnchoredToTheCrossingDay(t *testing.T) {
+	d0 := domain.Date{Year: 2026, Month: time.June, Day: 10}
+	watered := d0.AddDays(-1)
+	events := wateredOn(watered)
+	// Deficit crosses on d0 (30 mm). The rain is forecast for d0+2 only, so
+	// on d0+1 the plant is still above threshold and the deferral must hold.
+	series := func(precipOnD2, probOnD2 float64) EnvSeries {
+		return EnvSeries{Days: []DayEnv{
+			{Date: watered, ET0MM: 30, Observed: true},
+			{Date: d0, ET0MM: 30, Observed: true},
+			{Date: d0.AddDays(1), ET0MM: 1},
+			{Date: d0.AddDays(2), ET0MM: 1, PrecipMM: precipOnD2, PrecipProb: probOnD2},
+			{Date: d0.AddDays(3), ET0MM: 1},
+			{Date: d0.AddDays(4), ET0MM: 1},
+		}}
+	}
+
+	t.Run("holds on the day after the crossing", func(t *testing.T) {
+		for _, today := range []domain.Date{d0, d0.AddDays(1)} {
+			due, expl := ScheduleWater(outdoorPlant(), events, series(40, 80), today)
+			if !expl.Deferred {
+				t.Errorf("today=%s: not deferred (%q)", today, expl.Summary)
+			}
+			if due.On != d0.AddDays(2) {
+				t.Errorf("today=%s: due %s, want the anchored %s", today, due.On, d0.AddDays(2))
+			}
+			if due.Status == StatusOverdue {
+				t.Errorf("today=%s: overdue while waiting for forecast rain", today)
+			}
+		}
+	})
+
+	t.Run("expires when the rain does not materialise", func(t *testing.T) {
+		// Same crossing, but the forecast has since collapsed to nothing.
+		due, expl := ScheduleWater(outdoorPlant(), events, series(0, 0), d0.AddDays(1))
+		if expl.Deferred {
+			t.Error("still deferred with no rain in the forecast")
+		}
+		if due.Status != StatusOverdue {
+			t.Errorf("status %s, want overdue once the rain failed to arrive", due.Status)
+		}
+	})
+
+	t.Run("a deferral never reaches more than two days out", func(t *testing.T) {
+		// Rolling the clock forward must not let a deferral walk along with it.
+		// Once the rain lands the run ends and the plant is simply not due —
+		// that is the reservoir refilling, not a chained deferral, so only
+		// genuinely deferred results are constrained here.
+		for i := 0; i <= 4; i++ {
+			today := d0.AddDays(i)
+			due, expl := ScheduleWater(outdoorPlant(), events, series(40, 80), today)
+			if !expl.Deferred {
+				continue
+			}
+			if n := due.On.Sub(today); n > maxDeferDays {
+				t.Fatalf("today=%s: deferred to %s, %d days out, max %d",
+					today, due.On, n, maxDeferDays)
+			}
+		}
+	})
+}
