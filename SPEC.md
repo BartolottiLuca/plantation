@@ -365,6 +365,15 @@ Rules that the schema alone does not express:
 - `species` is a **read-through projection of the YAML catalog**. It is overwritten
   wholesale at every boot and never written at runtime. A species with plants referencing
   it is never deleted — set `retired = true`.
+- `care_tasks` is the per-plant control over a catalog task. A kind with no row
+  behaves exactly like an enabled one, so the table only ever holds deviations.
+  `snoozed_until` is **the day the task comes back**, not the day it goes quiet: the
+  task is suppressed while today is before that date and runs again from it.
+  `interval_days_override` applies to the fixed tasks only — watering is scheduled from
+  the reservoir model, and its per-plant knob is `plants.base_interval_days_override`.
+  These controls are applied in exactly one place, `care.ScheduleAll`, which the
+  dashboard and the digest both call; that shared call is what makes §6's promise that
+  the two can never disagree structurally true rather than a convention.
 - `care_events` is append-only. Undo sets `voided_at`; nothing ever issues `DELETE`.
   Last-water dates can be older than a month (succulents); dropping them would
   reschedule from `acquired_at` or today.
@@ -791,6 +800,7 @@ be usable at phone width.
 | `/plants/{id}/edit` | GET, POST | edit, including overrides |
 | `/plants/{id}/delete` | POST | soft delete (`active=false`) |
 | `/plants/{id}/care/{kind}` | POST | log a care event; `?action=water` deep link preselects |
+| `/plants/{id}/tasks/{kind}` | POST | task control: enable/disable, snooze until a date, override the interval |
 | `/events/{id}/void` | POST | undo a logged event |
 | `/settings/tado` | GET, POST | start and complete the device flow |
 | `/settings/diagnostics` | GET | weather staleness, last digest, token countdown, catalog version |

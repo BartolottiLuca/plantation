@@ -202,6 +202,9 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 	clk := wallClock{}
 	plantRepo := store.NewPlantRepo(pool)
 	eventRepo := store.NewCareEventRepo(pool)
+	// One repo, both readers: the dashboard and the digest must apply the
+	// same per-plant task controls or they can disagree about what is due.
+	taskRepo := store.NewCareTaskRepo(pool)
 	climateRepo := store.NewClimateRepo(pool)
 	tokenRepo := store.NewTadoTokenRepo(pool)
 
@@ -249,7 +252,7 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 		Auth:           asAuth(auth),
 		Plants:         plantRepo,
 		Events:         eventRepo,
-		Tasks:          store.NewCareTaskRepo(pool),
+		Tasks:          taskRepo,
 		Climate:        climateRepo,
 		Notify:         notifier,
 		Sweep:          sweeper,
@@ -261,6 +264,7 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 		Plants:       plantRepo,
 		Species:      store.NewSpeciesRepo(pool),
 		Events:       eventRepo,
+		Tasks:        taskRepo,
 		Clock:        clk,
 		Location:     cfg.Location,
 		WriteToken:   cfg.WriteToken,

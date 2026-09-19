@@ -37,6 +37,14 @@ type CareEventRepo interface {
 	SinceDate(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind, from domain.Date) ([]domain.CareEvent, error)
 }
 
+// CareTaskRepo is the per-plant task control: enable, snooze, interval
+// override. *store.CareTaskRepo satisfies it. Nil leaves every catalog task
+// enabled, which is what a boot without the repo wired used to do implicitly.
+type CareTaskRepo interface {
+	List(ctx context.Context, plantID uuid.UUID) ([]store.CareTask, error)
+	Upsert(ctx context.Context, t store.CareTask) (store.CareTask, error)
+}
+
 // RoomLister is the optional Tado room picker. climate.IndoorClimateProvider satisfies it.
 type RoomLister interface {
 	Rooms(ctx context.Context) ([]climate.RoomClimate, error)
@@ -49,6 +57,7 @@ var (
 	_ PlantRepo     = (*store.PlantRepo)(nil)
 	_ SpeciesRepo   = (*store.SpeciesRepo)(nil)
 	_ CareEventRepo = (*store.CareEventRepo)(nil)
+	_ CareTaskRepo  = (*store.CareTaskRepo)(nil)
 	_ RoomLister    = (*climate.NoopClimate)(nil)
 )
 
@@ -57,6 +66,7 @@ type Server struct {
 	Plants   PlantRepo
 	Species  SpeciesRepo
 	Events   CareEventRepo
+	Tasks    CareTaskRepo
 	Clock    care.Clock
 	Location *time.Location
 	// WriteToken, when non-empty, is required as Authorization: Bearer on POSTs.
@@ -108,6 +118,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /plants/{id}/edit", s.requireWrite(s.editPlantPOST))
 	mux.HandleFunc("POST /plants/{id}/delete", s.requireWrite(s.deletePlant))
 	mux.HandleFunc("POST /plants/{id}/care/{kind}", s.requireWrite(s.logCare))
+	mux.HandleFunc("POST /plants/{id}/tasks/{kind}", s.requireWrite(s.updateTask))
 	mux.HandleFunc("POST /events/{id}/void", s.requireWrite(s.voidEvent))
 	s.registerSettings(mux)
 	mux.Handle("GET /static/", noIndex(func(w http.ResponseWriter, r *http.Request) {

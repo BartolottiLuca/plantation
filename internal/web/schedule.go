@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/BartolottiLuca/plantation/internal/care"
@@ -94,25 +95,37 @@ func (s *Server) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Sp
 	env := s.envFor(ctx, p, sp)
 	params := care.Effective(p, sp)
 
-	var out []scheduled
-	due, expl := care.ScheduleWater(params, events, env, today)
-	out = append(out, scheduled{Plant: p, Species: sp, Due: due, Expl: expl})
+	controls, err := s.taskControls(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
 
-	// CareTask.List is not consulted: this card schedules from the species
-	// catalog only (water always; prune/fertilize/repot when the species
-	// defines them). Disabled-task rows would need a store query cmd can
-	// add later.
-	if sp.Prune != nil {
-		d, e := care.ScheduleFixed(*sp.Prune, domain.Prune, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
+	var out []scheduled
+	for _, t := range care.ScheduleAll(params, sp, events, env, controls, today) {
+		out = append(out, scheduled{Plant: p, Species: sp, Due: t.Due, Expl: t.Expl})
 	}
-	if sp.Fertilize != nil {
-		d, e := care.ScheduleFixed(*sp.Fertilize, domain.Fertilize, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
+	return out, nil
+}
+
+// taskControls reads the per-plant overrides the digest also applies. Both
+// sides go through care.ScheduleAll so the dashboard and the digest cannot
+// disagree about what is due (SPEC §6).
+func (s *Server) taskControls(ctx context.Context, plantID uuid.UUID) ([]care.TaskControl, error) {
+	if s.Tasks == nil {
+		return nil, nil
 	}
-	if sp.Repot != nil && !params.InGround {
-		d, e := care.ScheduleFixed(*sp.Repot, domain.Repot, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
+	rows, err := s.Tasks.List(ctx, plantID)
+	if err != nil {
+		return nil, fmt.Errorf("listing care tasks: %w", err)
+	}
+	out := make([]care.TaskControl, 0, len(rows))
+	for _, t := range rows {
+		out = append(out, care.TaskControl{
+			Kind:                 t.Kind,
+			Enabled:              t.Enabled,
+			IntervalDaysOverride: t.IntervalDaysOverride,
+			SnoozedUntil:         t.SnoozedUntil,
+		})
 	}
 	return out, nil
 }
@@ -298,4 +311,74 @@ func worstStatus(tasks []scheduled) (care.Status, string) {
 		}
 	}
 	return best, summary
+}
+
+// controlView is one row of the per-plant task settings form.
+type controlView struct {
+	PlantID      string
+	Kind         domain.TaskKind
+	KindLabel    string
+	Enabled      bool
+	IntervalDays string // "" when the catalog interval is in force
+	CatalogDays  int    // 0 for water, whose interval is physics-derived
+	SnoozedUntil string // "" when not snoozed, else YYYY-MM-DD
+	Suppressed   bool   // not running today, for whatever reason
+}
+
+// taskControlViews lists every task this plant can have, joined with whatever
+// control rows exist. Kinds follow the same rules care.ScheduleAll applies, so
+// the form can never offer a task the engine would not schedule.
+func (s *Server) taskControlViews(ctx context.Context, p domain.Plant, sp domain.Species) ([]controlView, error) {
+	if sp.Slug == "" {
+		return nil, nil
+	}
+	controls, err := s.taskControls(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	byKind := make(map[domain.TaskKind]care.TaskControl, len(controls))
+	for _, c := range controls {
+		byKind[c.Kind] = c
+	}
+
+	kinds := []struct {
+		kind domain.TaskKind
+		task *domain.FixedTask
+	}{
+		{domain.Water, nil},
+		{domain.Prune, sp.Prune},
+		{domain.Fertilize, sp.Fertilize},
+		{domain.Repot, sp.Repot},
+	}
+	today := s.today()
+	out := make([]controlView, 0, len(kinds))
+	for _, k := range kinds {
+		if k.kind != domain.Water && k.task == nil {
+			continue
+		}
+		if k.kind == domain.Repot && p.InGround {
+			continue
+		}
+		v := controlView{
+			PlantID:    p.ID.String(),
+			Kind:       k.kind,
+			KindLabel:  kindLabel(k.kind),
+			Enabled:    true,
+			Suppressed: !care.TaskActive(controls, k.kind, today),
+		}
+		if k.task != nil {
+			v.CatalogDays = k.task.IntervalDays
+		}
+		if c, ok := byKind[k.kind]; ok {
+			v.Enabled = c.Enabled
+			if c.IntervalDaysOverride != nil {
+				v.IntervalDays = strconv.Itoa(*c.IntervalDaysOverride)
+			}
+			if c.SnoozedUntil != nil {
+				v.SnoozedUntil = c.SnoozedUntil.String()
+			}
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }

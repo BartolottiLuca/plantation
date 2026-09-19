@@ -14,3 +14,29 @@
   </form>
 </article>
 {{end}}
+
+{{define "task-control"}}
+<form class="task-control{{if .Suppressed}} suppressed{{end}}" method="post"
+      action="/plants/{{.PlantID}}/tasks/{{.Kind}}">
+  <h3>{{.KindLabel}}{{if .Suppressed}} <span class="status status-off">not running</span>{{end}}</h3>
+  <label>
+    <input type="checkbox" name="enabled" value="1"{{if .Enabled}} checked{{end}}>
+    Enabled
+  </label>
+  <label>
+    Snooze until
+    <input type="date" name="snooze_until" value="{{.SnoozedUntil}}">
+  </label>
+  {{if .CatalogDays}}
+  <label>
+    Every
+    <input type="number" name="interval_days" min="1" max="3650"
+           value="{{.IntervalDays}}" placeholder="{{.CatalogDays}}">
+    days
+  </label>
+  {{else}}
+  <p class="hint">Watering is scheduled from the water balance, not a fixed interval.</p>
+  {{end}}
+  <button type="submit">Save</button>
+</form>
+{{end}}

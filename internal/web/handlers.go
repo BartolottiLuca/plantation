@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/BartolottiLuca/plantation/internal/climate"
 	"github.com/BartolottiLuca/plantation/internal/domain"
@@ -46,6 +48,7 @@ type detailData struct {
 	EmptyEnv bool
 	Water    explPanel
 	Tasks    []taskView
+	Controls []controlView
 	Events   []eventView
 	PlantID  string
 }
@@ -167,6 +170,11 @@ func (s *Server) plantDetail(w http.ResponseWriter, r *http.Request) {
 		v.Preselected = action != "" && string(t.Due.Kind) == action
 		views = append(views, v)
 	}
+	controls, err := s.taskControlViews(ctx, p, sp)
+	if err != nil {
+		s.internal(w, "loading task controls", err)
+		return
+	}
 	water := waterPanel(tasks)
 	s.render(w, http.StatusOK, "detail.html", detailData{
 		page:     s.page(r, "plants"),
@@ -177,6 +185,7 @@ func (s *Server) plantDetail(w http.ResponseWriter, r *http.Request) {
 		EmptyEnv: water.EmptyEnv,
 		Water:    water,
 		Tasks:    views,
+		Controls: controls,
 		Events:   events,
 		PlantID:  p.ID.String(),
 	})
@@ -371,4 +380,66 @@ func parseKind(raw string) (domain.TaskKind, bool) {
 	default:
 		return "", false
 	}
+}
+
+// updateTask writes the per-plant control row the digest and the dashboard
+// both read. An empty interval_days or snooze_until clears that override
+// rather than leaving a stale one in place.
+func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.loadActive(w, r)
+	if !ok {
+		return
+	}
+	kind, ok := parseKind(r.PathValue("kind"))
+	if !ok {
+		http.Error(w, "unknown care kind", http.StatusBadRequest)
+		return
+	}
+	if s.Tasks == nil {
+		http.Error(w, "task control is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "malformed form", http.StatusBadRequest)
+		return
+	}
+
+	t := store.CareTask{
+		PlantID: p.ID,
+		Kind:    kind,
+		Enabled: r.FormValue("enabled") != "",
+	}
+	if raw := strings.TrimSpace(r.FormValue("interval_days")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 3650 {
+			http.Error(w, "interval_days must be a whole number of days from 1 to 3650", http.StatusBadRequest)
+			return
+		}
+		// Water is scheduled from the reservoir model, not an interval; the
+		// plant-level base_interval_days_override is its knob (SPEC §7.7).
+		if kind != domain.Water {
+			t.IntervalDaysOverride = &n
+		}
+	}
+	if raw := strings.TrimSpace(r.FormValue("snooze_until")); raw != "" {
+		d, err := parseISODate(raw)
+		if err != nil {
+			http.Error(w, "snooze_until must be a date as YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+		t.SnoozedUntil = &d
+	}
+	if _, err := s.Tasks.Upsert(r.Context(), t); err != nil {
+		s.internal(w, "saving care task", err)
+		return
+	}
+	s.redirect(w, r, "/plants/"+p.ID.String())
+}
+
+func parseISODate(raw string) (domain.Date, error) {
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return domain.Date{}, err
+	}
+	return domain.Date{Year: t.Year(), Month: t.Month(), Day: t.Day()}, nil
 }

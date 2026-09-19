@@ -42,6 +42,15 @@
   </section>
   {{end}}
 
+  {{if .Controls}}
+  <section aria-labelledby="controls-heading">
+    <h2 id="controls-heading">Task settings</h2>
+    <p class="hint">Turn a task off, snooze it until a date, or override how often it repeats.
+      These apply to the dashboard and the Discord digest alike.</p>
+    {{range .Controls}}{{template "task-control" .}}{{end}}
+  </section>
+  {{end}}
+
   <section aria-labelledby="history-heading">
     <h2 id="history-heading">Care history</h2>
     {{if not .Events}}

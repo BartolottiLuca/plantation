@@ -95,39 +95,23 @@ func (l *Loop) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Spec
 	}
 
 	var out []scheduled
-	if enabled(tasks, domain.Water, today) {
-		due, expl := care.ScheduleWater(params, events, env, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: due, Expl: expl})
-	}
-	if sp.Prune != nil && enabled(tasks, domain.Prune, today) {
-		d, e := care.ScheduleFixed(*sp.Prune, domain.Prune, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
-	}
-	if sp.Fertilize != nil && enabled(tasks, domain.Fertilize, today) {
-		d, e := care.ScheduleFixed(*sp.Fertilize, domain.Fertilize, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
-	}
-	if sp.Repot != nil && !params.InGround && enabled(tasks, domain.Repot, today) {
-		d, e := care.ScheduleFixed(*sp.Repot, domain.Repot, events, today)
-		out = append(out, scheduled{Plant: p, Species: sp, Due: d, Expl: e})
+	for _, t := range care.ScheduleAll(params, sp, events, env, taskControls(tasks), today) {
+		out = append(out, scheduled{Plant: p, Species: sp, Due: t.Due, Expl: t.Expl})
 	}
 	return out, nil
 }
 
-func enabled(tasks []store.CareTask, kind domain.TaskKind, today domain.Date) bool {
+func taskControls(tasks []store.CareTask) []care.TaskControl {
+	out := make([]care.TaskControl, 0, len(tasks))
 	for _, t := range tasks {
-		if t.Kind != kind {
-			continue
-		}
-		if !t.Enabled {
-			return false
-		}
-		if t.SnoozedUntil != nil && !today.Before(*t.SnoozedUntil) {
-			return false
-		}
-		return true
+		out = append(out, care.TaskControl{
+			Kind:                 t.Kind,
+			Enabled:              t.Enabled,
+			IntervalDaysOverride: t.IntervalDaysOverride,
+			SnoozedUntil:         t.SnoozedUntil,
+		})
 	}
-	return true
+	return out
 }
 
 func (l *Loop) sendAlerts(ctx context.Context, today domain.Date, rows []store.PlantWithSpecies, tasks []scheduled) {
