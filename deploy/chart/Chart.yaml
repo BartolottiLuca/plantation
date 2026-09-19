@@ -3,4 +3,4 @@ name: plantation
 description: Single-user household plant care tracker (watering, pruning, fertilizing, repotting) with Discord reminders.
 type: application
 version: 0.1.0
-appVersion: "0.1.15"
+appVersion: "0.1.16"
