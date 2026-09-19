@@ -41,7 +41,8 @@ spec:
       {{- end }}
       securityContext:
         runAsNonRoot: true
-        # Matches the Dockerfile's distroless nonroot uid/gid.
+        # Matches the Dockerfile's numeric USER. scratch has no /etc/passwd, so
+        # this must stay numeric for kubelet to verify runAsNonRoot.
         runAsUser: 65532
         runAsGroup: 65532
         fsGroup: 65532

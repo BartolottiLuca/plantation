@@ -85,6 +85,7 @@ func (d Date) AddDays(n int) Date
 func (d Date) Sub(o Date) int      // whole days, d - o
 func (d Date) Before(o Date) bool
 func (d Date) String() string      // "2026-09-11"
+
 type Species struct {
     Slug             string          // stable identity, e.g. "monstera-deliciosa"
     CommonName       string
@@ -856,8 +857,22 @@ committed to git. Coordinates may live in the cluster Helm overlay.
 - Single replica, `strategy: Recreate`. With RollingUpdate two pods briefly overlap, and
   two schedulers is exactly what the advisory lock is there to survive but not what
   anybody wants. `values.yaml` carries a comment saying replicas must stay 1.
-- Image: multi-stage, `CGO_ENABLED=0`, distroless, non-root, read-only root filesystem,
-  built for `linux/amd64` and `linux/arm64`.
+- Image: multi-stage, `CGO_ENABLED=0`, `scratch`, non-root by numeric uid, read-only
+  root filesystem, built for `linux/amd64` and `linux/arm64`. The final stage carries
+  exactly two files: the binary and `/etc/ssl/certs/ca-certificates.crt`.
+- **The CA bundle must be copied into the final image explicitly.** `scratch` ships no
+  trust store, and without one every outbound HTTPS call — Open-Meteo, Tado, Discord —
+  fails with `x509: certificate signed by unknown authority`. The failure is quiet by
+  design elsewhere in this spec: weather staleness is typed data rather than an error
+  (§10.1), so the app still starts, `/healthz` and `/readyz` still return 200, the
+  dashboard still renders, and watering silently degrades to `base_interval` while the
+  digest and Tado fail in the background. Nothing surfaces for 24 h, when
+  `ops:weather_stale` fires. CI asserts the bundle is present in the built image
+  (§15); that assertion is the guard, not review.
+- Timezone data comes from `import _ "time/tzdata"` (§9), so `scratch` needs no
+  zoneinfo. `/etc/passwd` is likewise unnecessary: the image declares a numeric
+  `USER 65532:65532` and the chart pins the same uid in `securityContext.runAsUser`,
+  so Kubernetes can verify `runAsNonRoot` without resolving a name.
 - `/healthz` must not touch the database. If liveness checks the DB, a CNPG failover
   restarts the app for no reason and a longer outage means CrashLoopBackOff. `/readyz`
   does the DB ping.
@@ -889,7 +904,7 @@ committed to git. Coordinates may live in the cluster Helm overlay.
 | tado auth | successful rotation, `invalid_grant`, `slow_down`, and two concurrent goroutines refreshing where exactly one token spend occurs |
 | notifier | a simulated crash between claim and send yields at most one duplicate; empty days record `skipped` |
 | scheduler | a fake `Clock` over 30 days including a DST transition yields exactly one digest per actionable day, zero on empty days, and one alert per forecast frost event regardless of poll count |
-| image | `/healthz` returns 200 with no database present while `/readyz` returns 503 |
+| image | `/healthz` returns 200 with no database present while `/readyz` returns 503; the built image contains a non-empty `/etc/ssl/certs/ca-certificates.crt` |
 | CI | a push to `main` publishes the next `X.Y.Z` (from the tagging strategy) and `sha-<short>`, writes `image.tag` once, pushes git tag `vX.Y.Z`, and that write-back does not retrigger the workflow |
 
 `go test ./... -race` is the gate. Integration tests that need Postgres read

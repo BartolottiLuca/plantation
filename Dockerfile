@@ -30,11 +30,19 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 	-ldflags="-s -w -X github.com/BartolottiLuca/plantation/internal/web.Version=${VERSION} -X github.com/BartolottiLuca/plantation/internal/web.Commit=${COMMIT}" \
 	-o /out/plantation ./cmd/plantation
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM scratch
 
+# scratch ships no trust store. Without this the binary still starts, /healthz and
+# /readyz still answer 200, and the dashboard still renders — while every outbound
+# HTTPS call (Open-Meteo, Tado, Discord) fails with x509: certificate signed by
+# unknown authority, watering quietly degrades to base_interval, and nothing says
+# so for 24 h. CI asserts this file is present; do not drop it.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/plantation /plantation
 
-USER nonroot:nonroot
+# Numeric on purpose: scratch has no /etc/passwd, and a named user would leave
+# kubelet unable to verify runAsNonRoot. Matches securityContext.runAsUser.
+USER 65532:65532
 
 ENTRYPOINT ["/plantation"]
 CMD ["serve"]

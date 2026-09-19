@@ -101,3 +101,36 @@ jobs:
           build-args: |
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
+
+      # A multi-platform build stays in the builder and cannot be inspected, so
+      # load one arch into the daemon. Layers come from the cache above.
+      - name: Load amd64 image for inspection
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: plantation:ci
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
+      # SPEC §14: the final stage is scratch, which ships no trust store. Losing
+      # this COPY does not fail the build or the health checks — it silently
+      # breaks Open-Meteo, Tado and Discord at runtime. Assert it here, because
+      # nothing else will notice for 24 hours.
+      - name: Assert the image carries a CA bundle
+        run: |
+          set -eu
+          docker create --name ca-probe plantation:ci >/dev/null
+          trap 'docker rm -f ca-probe >/dev/null 2>&1 || true' EXIT
+          bytes=$(docker export ca-probe \
+            | tar -xO etc/ssl/certs/ca-certificates.crt 2>/dev/null \
+            | wc -c) || bytes=0
+          echo "ca-certificates.crt: ${bytes} bytes"
+          if [ "${bytes}" -lt 1000 ]; then
+            echo "::error::final image has no usable CA bundle (${bytes} bytes)." \
+              "scratch ships none, so every outbound HTTPS call would fail with" \
+              "x509: certificate signed by unknown authority. See SPEC.md §14."
+            exit 1
+          fi

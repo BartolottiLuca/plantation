@@ -10,10 +10,13 @@ A small, non-root, multi-arch image whose probes tell Kubernetes the truth.
 
 ## What to build
 
-1. **Dockerfile.** Multi-stage: a Go builder with module caching, then a distroless
-   static base. `CGO_ENABLED=0`, trimmed build flags, version and commit injected with
-   `-ldflags -X`. Runs as a non-root user with a read-only root filesystem. Targets
-   `linux/amd64` and `linux/arm64` — the home server may be either.
+1. **Dockerfile.** Multi-stage: a Go builder with module caching, then a `scratch`
+   final stage. `CGO_ENABLED=0`, trimmed build flags, version and commit injected with
+   `-ldflags -X`. Runs as a numeric non-root uid with a read-only root filesystem.
+   Targets `linux/amd64` and `linux/arm64` — the home server may be either.
+   **Copy `/etc/ssl/certs/ca-certificates.crt` from the builder into the final stage.**
+   `scratch` ships no trust store, and its absence breaks every outbound HTTPS call
+   without failing the build or the health checks — see SPEC §14.
 
 2. **`import _ "time/tzdata"`** must be present in `main.go` and must stay present. A
    distroless or scratch image carries no zoneinfo database, so `time.LoadLocation`
