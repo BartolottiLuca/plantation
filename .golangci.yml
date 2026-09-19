@@ -3,6 +3,7 @@ run:
   go: "1.25"
 linters:
   enable:
+    - errorlint
     - revive
   settings:
     revive:
@@ -23,6 +24,8 @@ linters:
       - builtin$
       - examples$
 formatters:
+  enable:
+    - gofmt
   exclusions:
     generated: lax
     paths:

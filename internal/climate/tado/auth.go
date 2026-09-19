@@ -266,7 +266,7 @@ func (c *Client) WaitForLink(ctx context.Context, dc DeviceCode) error {
 				return c.writeNewToken(ctx, w, current, tr)
 			}); err != nil {
 				slog.Error("tado token commit failed after successful device-flow exchange", "op", "tado_device_flow_commit")
-				return fmt.Errorf("%w: %v", ErrTokenLost, err)
+				return fmt.Errorf("%w: %w", ErrTokenLost, err)
 			}
 			return nil
 		case "authorization_pending":
@@ -356,7 +356,7 @@ func (c *Client) Refresh(ctx context.Context) error {
 
 	if tokenExchanged && err != nil {
 		slog.Error("tado token commit failed after successful refresh exchange", "op", "tado_refresh_commit")
-		return fmt.Errorf("%w: %v", ErrTokenLost, err)
+		return fmt.Errorf("%w: %w", ErrTokenLost, err)
 	}
 	if err != nil {
 		return err

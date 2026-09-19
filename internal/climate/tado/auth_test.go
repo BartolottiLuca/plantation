@@ -108,7 +108,7 @@ func (r *fakeRepo) WithLock(ctx context.Context, fn func(ctx context.Context, cu
 	if r.failCommit {
 		// The Postgres analogue: fn returned nil (it thinks it wrote), but
 		// the transaction's COMMIT fails, so nothing it staged is visible.
-		return errors.New("simulated commit failure")
+		return errCommitFailed
 	}
 	if w.written {
 		r.row = w.value
@@ -377,6 +377,10 @@ func TestWaitForLink_ContextCancelled(t *testing.T) {
 	}
 }
 
+// errCommitFailed stands in for the Postgres error a failed COMMIT surfaces.
+// It is a sentinel so the tests can prove the cause survives wrapping.
+var errCommitFailed = errors.New("simulated commit failure")
+
 func TestWaitForLink_CommitFailureReturnsErrTokenLost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, map[string]interface{}{
@@ -394,6 +398,11 @@ func TestWaitForLink_CommitFailureReturnsErrTokenLost(t *testing.T) {
 	err := c.WaitForLink(context.Background(), dc)
 	if !errors.Is(err, ErrTokenLost) {
 		t.Fatalf("err = %v, want ErrTokenLost", err)
+	}
+	// A lost token needs a human at a browser; keep the underlying cause
+	// inspectable so the operator learns why the commit failed.
+	if !errors.Is(err, errCommitFailed) {
+		t.Errorf("err = %v, want the commit cause to survive wrapping", err)
 	}
 	if row := repo.snapshot(); row.AccessToken != nil {
 		t.Errorf("AccessToken = %v, want unchanged (nil, never linked)", row.AccessToken)

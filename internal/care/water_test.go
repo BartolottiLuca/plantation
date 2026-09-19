@@ -464,3 +464,92 @@ func weirdFloat(rng *rand.Rand) float64 {
 		return rng.Float64() * 5
 	}
 }
+
+func TestExplanationDeficitIsAsOfToday(t *testing.T) {
+	today := domain.Date{Year: 2026, Month: time.July, Day: 1}
+	// Monstera archetype: C = 0.30 × (0.8 × 180) × 0.6 = 25.92 mm, threshold
+	// 12.96 mm, ETc = 0.7 × 2.0 = 1.40 mm/day at the stale-indoor f_dry of 1.0.
+	p := Params{
+		Location: domain.Indoor, Kc: 0.7, Substrate: domain.Peat, MAD: 0.5,
+		MinIntervalDays: 1, MaxIntervalDays: 90, BaseIntervalDays: 9,
+		FExposure: 1, FRain: 0, PotDiameterMM: 180,
+	}
+	tests := []struct {
+		name        string
+		wateredDays int
+		wantDeficit float64
+	}{
+		{"watered this morning", 0, 0.0},
+		{"three days on", 3, 4.20},
+		{"one day short of due", 9, 12.60},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := today.AddDays(-tc.wateredDays)
+			events := []domain.CareEvent{{
+				Kind:   domain.Water,
+				DoneAt: time.Date(w.Year, w.Month, w.Day, 8, 0, 0, 0, time.UTC),
+			}}
+			_, expl := ScheduleWater(p, events, EnvSeries{IndoorDataStale: true}, today)
+			if math.Abs(expl.DeficitMM-tc.wantDeficit) > 0.05 {
+				t.Errorf("DeficitMM = %.2f, want %.2f (horizon saturation leaking in?)",
+					expl.DeficitMM, tc.wantDeficit)
+			}
+			wantPct := tc.wantDeficit / 25.92
+			if math.Abs(expl.DepletionPct-wantPct) > 0.01 {
+				t.Errorf("DepletionPct = %.3f, want %.3f", expl.DepletionPct, wantPct)
+			}
+		})
+	}
+}
+
+func TestExplanationNeverContradictsDueDate(t *testing.T) {
+	// Summary is quoted verbatim into the Discord digest, so a plant that is
+	// not yet due must not report a deficit that already passed its threshold.
+	today := domain.Date{Year: 2026, Month: time.June, Day: 15}
+	rng := rand.New(rand.NewPCG(3, 4))
+	for i := 0; i < 400; i++ {
+		minI := rng.IntN(10) + 1
+		p := Params{
+			Location:         pickLocation(rng),
+			Kc:               weirdFloat(rng),
+			Substrate:        pickSubstrate(rng),
+			MAD:              weirdFloat(rng),
+			BaseIntervalDays: rng.IntN(40) - 5,
+			MinIntervalDays:  minI,
+			MaxIntervalDays:  minI + rng.IntN(40),
+			FExposure:        weirdFloat(rng),
+			FRain:            weirdFloat(rng),
+			PotDiameterMM:    rng.IntN(2000) - 10,
+		}
+		env := EnvSeries{}
+		switch rng.IntN(3) {
+		case 0:
+			env.IndoorDataStale = true
+		case 1:
+			env = constantOutdoor(today, weirdFloat(rng))
+		default:
+			env.Indoor = []IndoorDay{{Date: today, TempC: 21, HumidityPct: 50}}
+		}
+		var events []domain.CareEvent
+		if rng.IntN(2) == 0 {
+			events = []domain.CareEvent{{
+				Kind:   domain.Water,
+				DoneAt: time.Date(2026, time.June, 1+rng.IntN(14), 12, 0, 0, 0, time.UTC),
+			}}
+		}
+		due, expl := ScheduleWater(p, events, env, today)
+		if expl.DeficitMM < 0 || expl.DeficitMM > expl.CapacityMM+1e-9 {
+			t.Fatalf("iter %d: deficit %.3f outside [0, C=%.3f]", i, expl.DeficitMM, expl.CapacityMM)
+		}
+		// A deferral or a clamp legitimately pushes an already-due plant into
+		// the future; only an unmodified water-balance result is constrained.
+		if due.Status != StatusUpcoming || expl.Deferred || expl.ClampedBy != "" {
+			continue
+		}
+		if expl.Mode == ModeWaterBalance && expl.DeficitMM >= expl.ThresholdMM+1e-9 {
+			t.Fatalf("iter %d: upcoming on %s but deficit %.3f already ≥ threshold %.3f (%q)",
+				i, due.On, expl.DeficitMM, expl.ThresholdMM, expl.Summary)
+		}
+	}
+}

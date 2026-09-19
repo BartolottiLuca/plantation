@@ -212,6 +212,10 @@ func trailingObservedMean(days []DayEnv, today domain.Date) (float64, bool) {
 func project(p Params, series map[string]envDay, start, today domain.Date, cap, threshold float64) (due domain.Date, deficit, meanETc, rainMM float64, clampedBy string, deferred bool, deferReason string) {
 	horizon := today.AddDays(projectionDays)
 	var d float64
+	// d keeps integrating past today to find the crossing day, so it ends the
+	// loop saturated at C. The reported deficit is the value as of today —
+	// anything later is a projection the user cannot act on.
+	var todayDeficit float64
 	var etcSum float64
 	etcN := 0
 	becameDue := false
@@ -246,6 +250,9 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 			rain = 0
 		}
 		d = clampDeficit(d+etc-rain, cap)
+		if day == today {
+			todayDeficit = d
+		}
 		if !day.Before(today) {
 			etcSum += etc
 			etcN++
@@ -269,7 +276,7 @@ func project(p Params, series map[string]envDay, start, today domain.Date, cap, 
 	if etcN > 0 {
 		meanETc = etcSum / float64(etcN)
 	}
-	deficit = d
+	deficit = todayDeficit
 	if !becameDue {
 		dueOn = horizon
 		clampedBy = ClampProjectionCap

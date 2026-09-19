@@ -395,7 +395,7 @@ func TestSettingsWriteTokenOnPOST(t *testing.T) {
 				return ctx.Err()
 			},
 		},
-		Notifier:     fakeNotifier{},
+		Notifier: fakeNotifier{},
 	})
 	mux := http.NewServeMux()
 	s.Register(mux)
