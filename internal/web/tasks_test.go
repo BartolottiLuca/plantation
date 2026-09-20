@@ -23,7 +23,7 @@ type memTasks struct {
 
 func newMemTasks() *memTasks { return &memTasks{rows: map[string]store.CareTask{}} }
 
-func (m *memTasks) key(id uuid.UUID, k domain.TaskKind) string { return id.String() + "/" + string(k) }
+func (m *memTasks) key(id uuid.UUID, slug string) string { return id.String() + "/" + slug }
 
 func (m *memTasks) List(_ context.Context, plantID uuid.UUID) ([]store.CareTask, error) {
 	m.mu.Lock()
@@ -54,7 +54,7 @@ func (m *memTasks) ListForPlants(ctx context.Context, plantIDs []uuid.UUID) (map
 func (m *memTasks) Upsert(_ context.Context, t store.CareTask) (store.CareTask, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rows[m.key(t.PlantID, t.Kind)] = t
+	m.rows[m.key(t.PlantID, t.TaskSlug)] = t
 	return t, nil
 }
 
@@ -82,7 +82,7 @@ func TestDashboardHonoursSnooze(t *testing.T) {
 	// testNow is 2026-09-16; snooze past it.
 	until := domain.Date{Year: 2026, Month: time.October, Day: 1}
 	if _, err := tasks.Upsert(context.Background(), store.CareTask{
-		PlantID: p.ID, Kind: domain.Water, Enabled: true, SnoozedUntil: &until,
+		PlantID: p.ID, TaskSlug: domain.WaterSlug, Enabled: true, SnoozedUntil: &until,
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestDashboardHonoursDisabledTask(t *testing.T) {
 	_, db, mux := testUI(t, func(_ *memDB, s *Server) { s.Tasks = tasks })
 	p := thirstyPlant(t, db)
 	if _, err := tasks.Upsert(context.Background(), store.CareTask{
-		PlantID: p.ID, Kind: domain.Water, Enabled: false,
+		PlantID: p.ID, TaskSlug: domain.WaterSlug, Enabled: false,
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -248,4 +248,64 @@ func TestDashboardQueryCountIsFlatInPlantCount(t *testing.T) {
 		t.Errorf("batch reads = %d events, %d tasks; want exactly 1 of each for 12 plants",
 			events.batch, tasks.batch)
 	}
+}
+
+// lavenderTwoPruneTasks is a species with two tasks of one kind — the case
+// three fixed columns could never express, and the reason task identity
+// exists at all (SPEC §3, C15–C18). Both must render distinguishably.
+func lavenderTwoPruneTasks() domain.Species {
+	sp := fixtureSpecies()
+	sp.Slug = "lavandula-angustifolia"
+	sp.CommonName = "English lavender"
+	// Short intervals and no prior events so both land inside the dashboard's
+	// 7-day upcoming horizon (upcomingHorizonDays) without needing to log an
+	// event first.
+	sp.Tasks = []domain.SpeciesTask{
+		{Slug: "spring-tidy", Kind: domain.Prune, Label: "Tidy after winter", IntervalDays: 3},
+		{Slug: "prune-after-flowering", Kind: domain.Prune, Label: "Cut back after flowering", IntervalDays: 5},
+	}
+	return sp
+}
+
+// TestTwoTasksOfOneKindRenderDistinctlyEverywhere is C19's definition-of-done
+// case: the dashboard, the plant page and the digest must all show two tasks
+// sharing a kind as two distinguishable rows, not one kind name twice or one
+// collapsed into the other.
+func TestTwoTasksOfOneKindRenderDistinctlyEverywhere(t *testing.T) {
+	_, db, mux := testUI(t, func(db *memDB, _ *Server) { db.addSpecies(lavenderTwoPruneTasks()) })
+	p := mustCreate(t, db, domain.Plant{
+		Name: "Bed Lavender", SpeciesSlug: "lavandula-angustifolia", Location: domain.Outdoor,
+		InGround: true, FExposure: 1, FRain: 0.9, Active: true,
+	})
+
+	detail := doGET(t, mux, "/plants/"+p.ID.String())
+	assertStatus(t, detail, http.StatusOK)
+	// The due-task row (task-row template: <p class="kind">{{.Label}}</p>)
+	// must show each task's own label, not a shared "Prune" for both — this
+	// is taskOf's Label, distinct from controlView.Label in Task settings
+	// below, which would mask a regression here if checked alone.
+	assertContains(t, detail,
+		`<p class="kind">Tidy after winter</p>`,
+		`<p class="kind">Cut back after flowering</p>`,
+		"/plants/"+p.ID.String()+"/care/spring-tidy",
+		"/plants/"+p.ID.String()+"/care/prune-after-flowering",
+		"/plants/"+p.ID.String()+"/tasks/spring-tidy",
+		"/plants/"+p.ID.String()+"/tasks/prune-after-flowering",
+	)
+	if strings.Contains(html(detail), `<p class="kind">Prune</p>`) {
+		t.Errorf("a task row rendered the generic kind name instead of its own label:\n%s", html(detail))
+	}
+
+	dashboard := doGET(t, mux, "/")
+	assertStatus(t, dashboard, http.StatusOK)
+	assertContains(t, dashboard,
+		`<p class="kind">Tidy after winter</p>`,
+		`<p class="kind">Cut back after flowering</p>`,
+	)
+
+	// Logging one must not satisfy the other: each keeps its own due date.
+	logged := doPOST(t, mux, "/plants/"+p.ID.String()+"/care/spring-tidy", nil)
+	assertStatus(t, logged, http.StatusSeeOther)
+	after := doGET(t, mux, "/plants/"+p.ID.String())
+	assertContains(t, after, "Cut back after flowering — due")
 }

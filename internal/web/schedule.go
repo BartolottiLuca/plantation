@@ -19,13 +19,16 @@ const upcomingHorizonDays = 7
 // returns the full log. There is no list-all-events store method.
 var historyFrom = domain.Date{Year: 2000, Month: time.January, Day: 1}
 
-var historyKinds = []domain.TaskKind{
-	domain.Water, domain.Prune, domain.Fertilize, domain.Repot, domain.Inspect,
-}
-
+// scheduled is one task a plant owes, carried alongside the plant and species
+// it belongs to so a template can render both without a second lookup. Slug
+// and Label come straight from care.ScheduledTask — the engine is the single
+// source of what a task is called, so this package never re-derives a label
+// from Due.Kind alone (two tasks can share a kind).
 type scheduled struct {
 	Plant   domain.Plant
 	Species domain.Species
+	Slug    string
+	Label   string
 	Due     care.Due
 	Expl    care.Explanation
 }
@@ -33,8 +36,9 @@ type scheduled struct {
 type taskView struct {
 	PlantID     uuid.UUID
 	PlantName   string
+	Slug        string
 	Kind        domain.TaskKind
-	KindLabel   string
+	Label       string
 	Summary     string
 	DueOn       string
 	Status      care.Status
@@ -83,6 +87,16 @@ func (s *Server) activeRows(ctx context.Context) ([]store.PlantWithSpecies, erro
 	return out, nil
 }
 
+func toScheduled(p domain.Plant, sp domain.Species, tasks []care.ScheduledTask) []scheduled {
+	out := make([]scheduled, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, scheduled{
+			Plant: p, Species: sp, Slug: t.Slug, Label: t.Label, Due: t.Due, Expl: t.Expl,
+		})
+	}
+	return out
+}
+
 func (s *Server) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Species) ([]scheduled, error) {
 	if sp.Slug == "" {
 		return nil, nil
@@ -100,11 +114,7 @@ func (s *Server) schedulePlant(ctx context.Context, p domain.Plant, sp domain.Sp
 		return nil, err
 	}
 
-	var out []scheduled
-	for _, t := range care.ScheduleAll(params, sp, events, env, controls, today) {
-		out = append(out, scheduled{Plant: p, Species: sp, Due: t.Due, Expl: t.Expl})
-	}
-	return out, nil
+	return toScheduled(p, sp, care.ScheduleAll(params, sp, events, env, controls, today)), nil
 }
 
 // taskControls reads the per-plant overrides the digest also applies. Both
@@ -125,7 +135,7 @@ func toControls(rows []store.CareTask) []care.TaskControl {
 	out := make([]care.TaskControl, 0, len(rows))
 	for _, t := range rows {
 		out = append(out, care.TaskControl{
-			Kind:                 t.Kind,
+			Slug:                 t.TaskSlug,
 			Enabled:              t.Enabled,
 			IntervalDaysOverride: t.IntervalDaysOverride,
 			SnoozedUntil:         t.SnoozedUntil,
@@ -159,9 +169,8 @@ func (s *Server) scheduleRows(ctx context.Context, rows []store.PlantWithSpecies
 		}
 		params := care.Effective(row.Plant, row.Species)
 		env := s.envFor(ctx, row.Plant, row.Species)
-		for _, t := range care.ScheduleAll(params, row.Species, events[row.Plant.ID], env, controls[row.Plant.ID], today) {
-			out = append(out, scheduled{Plant: row.Plant, Species: row.Species, Due: t.Due, Expl: t.Expl})
-		}
+		tasks := care.ScheduleAll(params, row.Species, events[row.Plant.ID], env, controls[row.Plant.ID], today)
+		out = append(out, toScheduled(row.Plant, row.Species, tasks)...)
 	}
 	return out, nil
 }
@@ -211,7 +220,7 @@ func sortTasks(tasks []taskView) {
 		if tasks[i].PlantName != tasks[j].PlantName {
 			return tasks[i].PlantName < tasks[j].PlantName
 		}
-		return tasks[i].Kind < tasks[j].Kind
+		return tasks[i].Slug < tasks[j].Slug
 	})
 }
 
@@ -219,8 +228,9 @@ func taskOf(t scheduled) taskView {
 	return taskView{
 		PlantID:     t.Plant.ID,
 		PlantName:   t.Plant.Name,
+		Slug:        t.Slug,
 		Kind:        t.Due.Kind,
-		KindLabel:   kindLabel(t.Due.Kind),
+		Label:       t.Label,
 		Summary:     t.Expl.Summary,
 		DueOn:       t.Due.On.String(),
 		Status:      t.Due.Status,
@@ -228,16 +238,34 @@ func taskOf(t scheduled) taskView {
 	}
 }
 
+// kindLabel is the fallback display name for a kind with no specific task
+// label available — a legacy care-history event, or an event whose task has
+// since been removed from the catalog. Anywhere a real domain.SpeciesTask (or
+// the water pseudo-task) is in hand, its Label is used instead of this.
 func kindLabel(k domain.TaskKind) string {
 	switch k {
 	case domain.Water:
 		return "Water"
 	case domain.Prune:
 		return "Prune"
+	case domain.Pinch:
+		return "Pinch"
+	case domain.Deadhead:
+		return "Deadhead"
 	case domain.Fertilize:
 		return "Fertilize"
+	case domain.TopDress:
+		return "Top-dress"
 	case domain.Repot:
 		return "Repot"
+	case domain.Divide:
+		return "Divide"
+	case domain.Harvest:
+		return "Harvest"
+	case domain.Mulch:
+		return "Mulch"
+	case domain.Stake:
+		return "Stake"
 	case domain.Inspect:
 		return "Inspect"
 	default:
@@ -275,7 +303,7 @@ func panelOf(t scheduled) explPanel {
 	}
 	return explPanel{
 		Kind:            string(t.Due.Kind),
-		KindLabel:       kindLabel(t.Due.Kind),
+		KindLabel:       t.Label,
 		Mode:            e.Mode,
 		CapacityMM:      fmt.Sprintf("%.1f", e.CapacityMM),
 		DeficitMM:       fmt.Sprintf("%.1f", e.DeficitMM),
@@ -293,13 +321,28 @@ func panelOf(t scheduled) explPanel {
 	}
 }
 
-func (s *Server) history(ctx context.Context, p domain.Plant) ([]eventView, error) {
+// taskLabel resolves the best available name for a logged event: the species
+// task it names by slug, if that task still exists in the catalog, else the
+// generic kind label — which is also what a legacy (nil-slug) event gets,
+// since there is nothing more specific to show for one.
+func taskLabel(sp domain.Species, e domain.CareEvent) string {
+	if e.TaskSlug != nil {
+		for _, t := range sp.Tasks {
+			if t.Slug == *e.TaskSlug {
+				return t.Label
+			}
+		}
+	}
+	return kindLabel(e.Kind)
+}
+
+func (s *Server) history(ctx context.Context, p domain.Plant, sp domain.Species) ([]eventView, error) {
 	from := historyFrom
 	if p.AcquiredAt != nil && !p.AcquiredAt.IsZero() {
 		from = domain.TodayIn(*p.AcquiredAt, s.loc())
 	}
 	var all []domain.CareEvent
-	for _, k := range historyKinds {
+	for _, k := range domain.TaskKinds() {
 		ev, err := s.Events.SinceDate(ctx, p.ID, k, from)
 		if err != nil {
 			return nil, fmt.Errorf("listing %s events: %w", k, err)
@@ -319,7 +362,7 @@ func (s *Server) history(ctx context.Context, p domain.Plant) ([]eventView, erro
 		}
 		out = append(out, eventView{
 			ID:     e.ID,
-			Kind:   kindLabel(e.Kind),
+			Kind:   taskLabel(sp, e),
 			DoneOn: domain.TodayIn(e.DoneAt, s.loc()).String(),
 			Source: e.Source,
 			Note:   e.Note,
@@ -355,8 +398,8 @@ func worstStatus(tasks []scheduled) (care.Status, string) {
 // controlView is one row of the per-plant task settings form.
 type controlView struct {
 	PlantID      string
-	Kind         domain.TaskKind
-	KindLabel    string
+	Slug         string
+	Label        string
 	Enabled      bool
 	IntervalDays string // "" when the catalog interval is in force
 	CatalogDays  int    // 0 for water, whose interval is physics-derived
@@ -365,8 +408,10 @@ type controlView struct {
 }
 
 // taskControlViews lists every task this plant can have, joined with whatever
-// control rows exist. Kinds follow the same rules care.ScheduleAll applies, so
-// the form can never offer a task the engine would not schedule.
+// control rows exist. It walks sp.Tasks directly — the same list
+// care.ScheduleAll walks — so the form can never offer a task the engine
+// would not schedule, and two tasks sharing a kind render as two distinct
+// rows rather than one.
 func (s *Server) taskControlViews(ctx context.Context, p domain.Plant, sp domain.Species) ([]controlView, error) {
 	if sp.Slug == "" {
 		return nil, nil
@@ -375,40 +420,36 @@ func (s *Server) taskControlViews(ctx context.Context, p domain.Plant, sp domain
 	if err != nil {
 		return nil, err
 	}
-	byKind := make(map[domain.TaskKind]care.TaskControl, len(controls))
+	bySlug := make(map[string]care.TaskControl, len(controls))
 	for _, c := range controls {
-		byKind[c.Kind] = c
+		bySlug[c.Slug] = c
 	}
 
-	kinds := []struct {
-		kind domain.TaskKind
-		task *domain.FixedTask
-	}{
-		{domain.Water, nil},
-		{domain.Prune, sp.Prune},
-		{domain.Fertilize, sp.Fertilize},
-		{domain.Repot, sp.Repot},
+	type entry struct {
+		slug, label string
+		catalogDays int
 	}
+	entries := make([]entry, 0, len(sp.Tasks)+1)
+	entries = append(entries, entry{slug: domain.WaterSlug, label: "Water"})
+	for _, t := range sp.Tasks {
+		if t.Kind == domain.Repot && p.InGround {
+			continue // SPEC §7.1: an in-ground plant is never repotted.
+		}
+		entries = append(entries, entry{slug: t.Slug, label: t.Label, catalogDays: t.IntervalDays})
+	}
+
 	today := s.today()
-	out := make([]controlView, 0, len(kinds))
-	for _, k := range kinds {
-		if k.kind != domain.Water && k.task == nil {
-			continue
-		}
-		if k.kind == domain.Repot && p.InGround {
-			continue
-		}
+	out := make([]controlView, 0, len(entries))
+	for _, en := range entries {
 		v := controlView{
-			PlantID:    p.ID.String(),
-			Kind:       k.kind,
-			KindLabel:  kindLabel(k.kind),
-			Enabled:    true,
-			Suppressed: !care.TaskActive(controls, k.kind, today),
+			PlantID:     p.ID.String(),
+			Slug:        en.slug,
+			Label:       en.label,
+			Enabled:     true,
+			CatalogDays: en.catalogDays,
+			Suppressed:  !care.TaskActive(controls, en.slug, today),
 		}
-		if k.task != nil {
-			v.CatalogDays = k.task.IntervalDays
-		}
-		if c, ok := byKind[k.kind]; ok {
+		if c, ok := bySlug[en.slug]; ok {
 			v.Enabled = c.Enabled
 			if c.IntervalDaysOverride != nil {
 				v.IntervalDays = strconv.Itoa(*c.IntervalDaysOverride)
@@ -420,4 +461,22 @@ func (s *Server) taskControlViews(ctx context.Context, p domain.Plant, sp domain
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// findTask resolves a slug from a route into the TaskKind that goes on a
+// domain.CareEvent / store.CareTask, and reports whether it names a real
+// task: the reserved water slug, or one of sp.Tasks. This is the single place
+// a slug from a URL is validated against what a species actually offers,
+// mirroring how parseKind validated a fixed kind set before task identity
+// existed.
+func findTask(sp domain.Species, slug string) (kind domain.TaskKind, label string, ok bool) {
+	if slug == domain.WaterSlug {
+		return domain.Water, "Water", true
+	}
+	for _, t := range sp.Tasks {
+		if t.Slug == slug {
+			return t.Kind, t.Label, true
+		}
+	}
+	return "", "", false
 }

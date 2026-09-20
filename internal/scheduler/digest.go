@@ -23,6 +23,8 @@ const (
 type scheduled struct {
 	Plant   domain.Plant
 	Species domain.Species
+	Slug    string
+	Label   string
 	Due     care.Due
 	Expl    care.Explanation
 }
@@ -60,7 +62,9 @@ func (l *Loop) digestAndAlerts(ctx context.Context) error {
 		env := l.PlantEnv(ctx, row.Plant, row.Species)
 		params := care.Effective(row.Plant, row.Species)
 		for _, t := range care.ScheduleAll(params, row.Species, events[row.Plant.ID], env, controls[row.Plant.ID], today) {
-			tasks = append(tasks, scheduled{Plant: row.Plant, Species: row.Species, Due: t.Due, Expl: t.Expl})
+			tasks = append(tasks, scheduled{
+				Plant: row.Plant, Species: row.Species, Slug: t.Slug, Label: t.Label, Due: t.Due, Expl: t.Expl,
+			})
 		}
 	}
 
@@ -71,7 +75,7 @@ func (l *Loop) digestAndAlerts(ctx context.Context) error {
 		line := notify.DigestLine{
 			PlantID:   t.Plant.ID,
 			PlantName: t.Plant.Name,
-			Task:      string(t.Due.Kind),
+			Task:      t.Label,
 			Summary:   t.Expl.Summary,
 		}
 		switch t.Due.Status {
@@ -109,7 +113,7 @@ func taskControls(tasks []store.CareTask) []care.TaskControl {
 	out := make([]care.TaskControl, 0, len(tasks))
 	for _, t := range tasks {
 		out = append(out, care.TaskControl{
-			Kind:                 t.Kind,
+			Slug:                 t.TaskSlug,
 			Enabled:              t.Enabled,
 			IntervalDaysOverride: t.IntervalDaysOverride,
 			SnoozedUntil:         t.SnoozedUntil,

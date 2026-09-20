@@ -1,13 +1,13 @@
 {{define "task-row"}}
-<article class="task{{if .Preselected}} preselected{{end}}" id="task-{{.PlantID}}-{{.Kind}}"{{if .Preselected}} data-preselected="{{.Kind}}"{{end}}>
+<article class="task{{if .Preselected}} preselected{{end}}" id="task-{{.PlantID}}-{{.Slug}}"{{if .Preselected}} data-preselected="{{.Slug}}"{{end}}>
   <div class="task-body">
     <h3><a href="/plants/{{.PlantID}}">{{.PlantName}}</a></h3>
-    <p class="kind">{{.KindLabel}}</p>
+    <p class="kind">{{.Label}}</p>
     <p class="summary">{{.Summary}}</p>
     <p class="meta"><span class="status status-{{.Status}}">{{.StatusLabel}}</span> · {{.DueOn}}</p>
   </div>
-  <form class="done" method="post" action="/plants/{{.PlantID}}/care/{{.Kind}}"
-        hx-post="/plants/{{.PlantID}}/care/{{.Kind}}"
+  <form class="done" method="post" action="/plants/{{.PlantID}}/care/{{.Slug}}"
+        hx-post="/plants/{{.PlantID}}/care/{{.Slug}}"
         hx-target="closest article"
         hx-swap="outerHTML">
     <button type="submit">Done</button>
@@ -17,8 +17,8 @@
 
 {{define "task-control"}}
 <form class="task-control{{if .Suppressed}} suppressed{{end}}" method="post"
-      action="/plants/{{.PlantID}}/tasks/{{.Kind}}">
-  <h3>{{.KindLabel}}{{if .Suppressed}} <span class="status status-off">not running</span>{{end}}</h3>
+      action="/plants/{{.PlantID}}/tasks/{{.Slug}}">
+  <h3>{{.Label}}{{if .Suppressed}} <span class="status status-off">not running</span>{{end}}</h3>
   <label>
     <input type="checkbox" name="enabled" value="1"{{if .Enabled}} checked{{end}}>
     Enabled

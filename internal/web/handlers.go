@@ -158,7 +158,7 @@ func (s *Server) plantDetail(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, "scheduling plant", err)
 		return
 	}
-	events, err := s.history(ctx, p)
+	events, err := s.history(ctx, p, sp)
 	if err != nil {
 		s.internal(w, "loading care history", err)
 		return
@@ -167,7 +167,7 @@ func (s *Server) plantDetail(w http.ResponseWriter, r *http.Request) {
 	views := make([]taskView, 0, len(tasks))
 	for _, t := range tasks {
 		v := taskOf(t)
-		v.Preselected = action != "" && string(t.Due.Kind) == action
+		v.Preselected = action != "" && t.Slug == action
 		views = append(views, v)
 	}
 	controls, err := s.taskControlViews(ctx, p, sp)
@@ -248,16 +248,28 @@ func (s *Server) logCare(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	kind, ok := parseKind(r.PathValue("kind"))
-	if !ok {
-		http.Error(w, "unknown care kind", http.StatusBadRequest)
+	ctx := r.Context()
+	sp, missing, err := s.loadSpecies(ctx, p.SpeciesSlug)
+	if err != nil {
+		s.internal(w, "loading species", err)
 		return
 	}
-	if _, err := s.Events.Add(r.Context(), domain.CareEvent{
-		PlantID: p.ID,
-		Kind:    kind,
-		DoneAt:  s.Clock.Now(),
-		Source:  "web",
+	if missing {
+		http.Error(w, "species is missing from the catalog", http.StatusBadRequest)
+		return
+	}
+	slug := r.PathValue("slug")
+	kind, _, ok := findTask(sp, slug)
+	if !ok {
+		http.Error(w, "unknown care task", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.Events.Add(ctx, domain.CareEvent{
+		PlantID:  p.ID,
+		Kind:     kind,
+		TaskSlug: &slug,
+		DoneAt:   s.Clock.Now(),
+		Source:   "web",
 	}); err != nil {
 		s.internal(w, "logging care event", err)
 		return
@@ -372,16 +384,6 @@ func (s *Server) loadSpecies(ctx context.Context, slug string) (domain.Species, 
 	return sp, false, nil
 }
 
-func parseKind(raw string) (domain.TaskKind, bool) {
-	k := domain.TaskKind(raw)
-	switch k {
-	case domain.Water, domain.Prune, domain.Fertilize, domain.Repot, domain.Inspect:
-		return k, true
-	default:
-		return "", false
-	}
-}
-
 // updateTask writes the per-plant control row the digest and the dashboard
 // both read. An empty interval_days or snooze_until clears that override
 // rather than leaving a stale one in place.
@@ -390,9 +392,20 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	kind, ok := parseKind(r.PathValue("kind"))
+	ctx := r.Context()
+	sp, missing, err := s.loadSpecies(ctx, p.SpeciesSlug)
+	if err != nil {
+		s.internal(w, "loading species", err)
+		return
+	}
+	if missing {
+		http.Error(w, "species is missing from the catalog", http.StatusBadRequest)
+		return
+	}
+	slug := r.PathValue("slug")
+	kind, _, ok := findTask(sp, slug)
 	if !ok {
-		http.Error(w, "unknown care kind", http.StatusBadRequest)
+		http.Error(w, "unknown care task", http.StatusBadRequest)
 		return
 	}
 	if s.Tasks == nil {
@@ -405,9 +418,9 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t := store.CareTask{
-		PlantID: p.ID,
-		Kind:    kind,
-		Enabled: r.FormValue("enabled") != "",
+		PlantID:  p.ID,
+		TaskSlug: slug,
+		Enabled:  r.FormValue("enabled") != "",
 	}
 	if raw := strings.TrimSpace(r.FormValue("interval_days")); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -429,7 +442,7 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		}
 		t.SnoozedUntil = &d
 	}
-	if _, err := s.Tasks.Upsert(r.Context(), t); err != nil {
+	if _, err := s.Tasks.Upsert(ctx, t); err != nil {
 		s.internal(w, "saving care task", err)
 		return
 	}

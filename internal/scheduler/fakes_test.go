@@ -40,12 +40,13 @@ type fakeNotify struct {
 	mu      sync.Mutex
 	sent    []string
 	kinds   map[string]string
+	bodies  map[string]notify.Message
 	fail    error
 	failKey string
 }
 
 func newFakeNotify() *fakeNotify {
-	return &fakeNotify{kinds: map[string]string{}}
+	return &fakeNotify{kinds: map[string]string{}, bodies: map[string]notify.Message{}}
 }
 
 func (f *fakeNotify) SendOnce(_ context.Context, dedupeKey, kind string, msg notify.Message) error {
@@ -63,6 +64,7 @@ func (f *fakeNotify) SendOnce(_ context.Context, dedupeKey, kind string, msg not
 		return nil
 	}
 	f.kinds[dedupeKey] = kind
+	f.bodies[dedupeKey] = msg
 	f.sent = append(f.sent, dedupeKey)
 	return nil
 }
@@ -96,6 +98,14 @@ func (f *fakeNotify) has(key string) bool {
 	defer f.mu.Unlock()
 	_, ok := f.kinds[key]
 	return ok
+}
+
+// bodyOf returns the message sent under key, so a test can check what the
+// digest actually said rather than only that something was sent.
+func (f *fakeNotify) bodyOf(key string) notify.Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.bodies[key]
 }
 
 type fakeWeather struct {

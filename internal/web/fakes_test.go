@@ -147,17 +147,29 @@ func (m *memDB) Void(_ context.Context, id int64) error {
 	return store.ErrNotFound
 }
 
+// LatestByKind groups by (kind, task_slug), matching the real store
+// (internal/store/care_event.go): a nil slug is its own bucket per kind (the
+// legacy fallback), and a real slug is its own bucket regardless of kind, so
+// two tasks sharing a kind track independent last-done dates here too.
 func (m *memDB) LatestByKind(_ context.Context, plantID uuid.UUID) ([]domain.CareEvent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	best := map[domain.TaskKind]domain.CareEvent{}
+	type key struct {
+		kind domain.TaskKind
+		slug string
+	}
+	best := map[key]domain.CareEvent{}
 	for _, e := range m.events {
 		if e.PlantID != plantID || e.VoidedAt != nil {
 			continue
 		}
-		cur, ok := best[e.Kind]
+		k := key{kind: e.Kind}
+		if e.TaskSlug != nil {
+			k.slug = *e.TaskSlug
+		}
+		cur, ok := best[k]
 		if !ok || e.DoneAt.After(cur.DoneAt) || (e.DoneAt.Equal(cur.DoneAt) && e.ID > cur.ID) {
-			best[e.Kind] = e
+			best[k] = e
 		}
 	}
 	out := make([]domain.CareEvent, 0, len(best))

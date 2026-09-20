@@ -31,6 +31,11 @@ func fixtureSpecies() domain.Species {
 		MinIntervalDays:  3,
 		MaxIntervalDays:  21,
 		DormancyFactor:   1,
+		Tasks: []domain.SpeciesTask{
+			{Slug: "prune", Kind: domain.Prune, Label: "Prune", IntervalDays: 90},
+			{Slug: "fertilize", Kind: domain.Fertilize, Label: "Fertilize", IntervalDays: 30},
+			{Slug: "repot", Kind: domain.Repot, Label: "Repot", IntervalDays: 730},
+		},
 	}
 }
 
@@ -286,11 +291,9 @@ func TestCreateEditDeletePlant(t *testing.T) {
 }
 
 func TestCreateOutdoorInGroundPlant(t *testing.T) {
-	_, db, mux := testUI(t, func(db *memDB, _ *Server) {
-		sp := fixtureSpecies()
-		sp.Repot = &domain.FixedTask{IntervalDays: 730}
-		db.addSpecies(sp)
-	})
+	// fixtureSpecies() already declares a repot task; this test's whole point
+	// is proving an in-ground plant never gets it scheduled (SPEC §7.1).
+	_, db, mux := testUI(t, nil)
 	form := validPlantForm("Lavender")
 	form.Set("location", "outdoor")
 	form.Set("container", "ground")

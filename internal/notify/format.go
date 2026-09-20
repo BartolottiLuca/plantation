@@ -11,8 +11,10 @@ import (
 // DigestLine is one actionable task row for FormatDigest. It is notify's own
 // small struct (not domain.Due or care.Explanation) because this package
 // does not own those types and only needs the handful of fields the digest
-// line renders: plant.Name, the task kind as a display string, and
-// care.Explanation.Summary, computed by whoever calls FormatDigest (C09).
+// line renders: plant.Name, the task's label (care.ScheduledTask.Label — not
+// its kind, since two tasks can share a kind and only the label tells them
+// apart), and care.Explanation.Summary, computed by whoever calls
+// FormatDigest (C09).
 type DigestLine struct {
 	PlantID   uuid.UUID
 	PlantName string

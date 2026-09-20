@@ -119,8 +119,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /plants/{id}/edit", noIndex(s.editPlantGET))
 	mux.HandleFunc("POST /plants/{id}/edit", s.requireWrite(s.editPlantPOST))
 	mux.HandleFunc("POST /plants/{id}/delete", s.requireWrite(s.deletePlant))
-	mux.HandleFunc("POST /plants/{id}/care/{kind}", s.requireWrite(s.logCare))
-	mux.HandleFunc("POST /plants/{id}/tasks/{kind}", s.requireWrite(s.updateTask))
+	mux.HandleFunc("POST /plants/{id}/care/{slug}", s.requireWrite(s.logCare))
+	mux.HandleFunc("POST /plants/{id}/tasks/{slug}", s.requireWrite(s.updateTask))
 	mux.HandleFunc("POST /events/{id}/void", s.requireWrite(s.voidEvent))
 	s.registerSettings(mux)
 	mux.Handle("GET /static/", noIndex(func(w http.ResponseWriter, r *http.Request) {

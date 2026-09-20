@@ -4,6 +4,9 @@
   <h1>{{.Plant.Name}}</h1>
   <p class="meta">{{.Species.CommonName}} <em>{{.Species.ScientificName}}</em>
     {{if .Plant.Place}} · {{.Plant.Place}}{{end}} · {{.Plant.Location}}{{if .Plant.InGround}} · in the ground{{end}}</p>
+  {{if .Species.Description}}
+  <p class="description">{{.Species.Description}}</p>
+  {{end}}
 
   {{if .Retired}}
   <p class="warn" role="status">This species is retired. The plant is still usable; the catalog entry will not be offered for new plants.</p>

@@ -388,10 +388,13 @@ Rules that the schema alone does not express:
 - `species` is a **read-through projection of the YAML catalog**. It is overwritten
   wholesale at every boot and never written at runtime. A species with plants referencing
   it is never deleted — set `retired = true`.
-- `care_tasks` is the per-plant control over a catalog task. A kind with no row
-  behaves exactly like an enabled one, so the table only ever holds deviations.
-  `snoozed_until` is **the day the task comes back**, not the day it goes quiet: the
-  task is suppressed while today is before that date and runs again from it.
+- `care_tasks` is the per-plant control over one declared task, keyed on **task slug**
+  (`domain.WaterSlug` for water, or a `species_tasks.slug` for everything else) — not on
+  kind, because a species may declare two tasks of one kind (lavender's spring tidy and
+  its post-flowering cut are both `kind = prune`) and each needs its own control. A slug
+  with no row behaves exactly like an enabled one, so the table only ever holds
+  deviations. `snoozed_until` is **the day the task comes back**, not the day it goes
+  quiet: the task is suppressed while today is before that date and runs again from it.
   `interval_days_override` applies to the fixed tasks only — watering is scheduled from
   the reservoir model, and its per-plant knob is `plants.base_interval_days_override`.
   These controls are applied in exactly one place, `care.ScheduleAll`, which the
@@ -828,8 +831,8 @@ be usable at phone width.
 | `/plants/{id}` | GET | detail, explanation panel, care history |
 | `/plants/{id}/edit` | GET, POST | edit, including overrides |
 | `/plants/{id}/delete` | POST | soft delete (`active=false`) |
-| `/plants/{id}/care/{kind}` | POST | log a care event; `?action=water` deep link preselects |
-| `/plants/{id}/tasks/{kind}` | POST | task control: enable/disable, snooze until a date, override the interval |
+| `/plants/{id}/care/{slug}` | POST | log a care event by task slug (`water`, or a `species_tasks.slug`); `?action=water` deep link preselects |
+| `/plants/{id}/tasks/{slug}` | POST | task control: enable/disable, snooze until a date, override the interval — keyed on the same slug as above |
 | `/events/{id}/void` | POST | undo a logged event |
 | `/settings/tado` | GET, POST | start and complete the device flow |
 | `/settings/diagnostics` | GET | weather staleness, last digest, token countdown, catalog version |

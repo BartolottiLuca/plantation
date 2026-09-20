@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,7 +58,7 @@ func digestLoop(t *testing.T, tasks TaskLister) (*Loop, *fakeNotify) {
 
 func waterControl(t store.CareTask) TaskLister {
 	t.PlantID = controlPlantID
-	t.Kind = domain.Water
+	t.TaskSlug = domain.WaterSlug
 	return &fakeTasks{rows: map[uuid.UUID][]store.CareTask{controlPlantID: {t}}}
 }
 
@@ -141,5 +142,67 @@ func TestHeatwaveAlertOncePerForecastDay(t *testing.T) {
 	}
 	if keys[0] != "heatwave:2026-07-02" {
 		t.Errorf("key = %s, want the 34 C day rather than the 24 C one", keys[0])
+	}
+}
+
+// TestDigestUsesTaskLabelsNotKindNames is C19's digest half of the two-tasks-
+// of-one-kind requirement: with two prune tasks on one species, the digest
+// line for each must say its own label, not "prune" twice.
+func TestDigestUsesTaskLabelsNotKindNames(t *testing.T) {
+	loc := london(t)
+	id := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	sp := domain.Species{
+		Slug: "lavandula-angustifolia", CommonName: "Lavender", Placement: domain.Outdoor,
+		Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7,
+		BaseIntervalDays: 8, MinIntervalDays: 4, MaxIntervalDays: 21,
+		Tasks: []domain.SpeciesTask{
+			{Slug: "spring-tidy", Kind: domain.Prune, Label: "Tidy after winter", IntervalDays: 3},
+			{Slug: "prune-after-flowering", Kind: domain.Prune, Label: "Cut back after flowering", IntervalDays: 5},
+		},
+	}
+	row := store.PlantWithSpecies{
+		Plant: domain.Plant{
+			ID: id, Name: "Bed Lavender", SpeciesSlug: sp.Slug, Location: domain.Outdoor,
+			InGround: true, FExposure: 1, FRain: 0.9, Active: true,
+		},
+		Species: sp,
+	}
+	// A fresh fixed task with no prior event is never due today or overdue —
+	// its earliest possible date is IntervalDays out (Status upcoming), and
+	// the digest only ever includes overdue/due-today. Anchor each task to a
+	// past event so both land squarely in the digest.
+	tidySlug, cutSlug := "spring-tidy", "prune-after-flowering"
+	tidyDone := time.Date(2026, 6, 26, 9, 0, 0, 0, loc) // +3d = 2026-06-29, overdue
+	cutDone := time.Date(2026, 6, 25, 9, 0, 0, 0, loc)  // +5d = 2026-06-30, overdue
+	events := map[uuid.UUID][]domain.CareEvent{
+		id: {
+			{PlantID: id, Kind: domain.Prune, TaskSlug: &tidySlug, DoneAt: tidyDone},
+			{PlantID: id, Kind: domain.Prune, TaskSlug: &cutSlug, DoneAt: cutDone},
+		},
+	}
+	n := newFakeNotify()
+	loop := New(Loop{
+		Clock:      &testClock{t: time.Date(2026, 7, 1, 10, 0, 0, 0, loc)},
+		Location:   loc,
+		DigestHour: 9,
+		BaseURL:    "https://plantation.example.invalid",
+		Lock:       AlwaysLock{},
+		Plants:     &fakePlants{rows: []store.PlantWithSpecies{row}},
+		Events:     &fakeEvents{byPlant: events},
+		Notify:     n,
+		Log:        discardLog(),
+	})
+	loop.Tick(context.Background())
+
+	sent := n.digestSent()
+	if len(sent) != 1 {
+		t.Fatalf("digest keys = %v, want exactly one", sent)
+	}
+	body := n.bodyOf(sent[0]).Description
+	if !strings.Contains(body, "Tidy after winter") || !strings.Contains(body, "Cut back after flowering") {
+		t.Fatalf("digest body missing one or both task labels:\n%s", body)
+	}
+	if strings.Contains(body, "— prune —") {
+		t.Errorf("digest fell back to the generic kind name instead of the task label:\n%s", body)
 	}
 }
