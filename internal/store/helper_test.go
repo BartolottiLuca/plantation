@@ -57,7 +57,7 @@ func resetData(t *testing.T, pool *pgxpool.Pool) {
 	ctx := context.Background()
 	_, err := pool.Exec(ctx, `
 		TRUNCATE notifications, room_climate_samples, weather_daily,
-			care_events, care_tasks, plants, species
+			care_events, care_tasks, species_tasks, plants, species
 		RESTART IDENTITY CASCADE;
 		UPDATE tado_token SET
 			access_token = NULL,

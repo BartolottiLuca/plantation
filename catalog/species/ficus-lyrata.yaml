@@ -1,5 +1,9 @@
 common_name: Fiddle-leaf fig
 scientific_name: Ficus lyrata
+description: >-
+  A West African rainforest tree grown indoors for its large, glossy,
+  violin-shaped leaves. Slow to establish and quick to sulk, but rewards a
+  stable spot with real height over the years.
 placement: indoor
 kc: 0.75
 substrate: peat
@@ -11,15 +15,21 @@ dormant_months: [11, 12, 1, 2]
 dormancy_factor: 0.5
 min_temp_c: 15
 frost_tender: true
-prune:
-  interval_days: 180
-  active_months: [3, 4, 5, 6]
-fertilize:
-  interval_days: 30
-  active_months: [3, 4, 5, 6, 7, 8, 9]
-repot:
-  interval_days: 730
-  active_months: []
+tasks:
+  - slug: prune
+    kind: prune
+    label: Prune
+    interval_days: 180
+    active_months: [3, 4, 5, 6]
+  - slug: fertilize
+    kind: fertilize
+    label: Feed
+    interval_days: 30
+    active_months: [3, 4, 5, 6, 7, 8, 9]
+  - slug: repot
+    kind: repot
+    label: Repot
+    interval_days: 730
 care_advice: >-
   Give it one bright, steady spot and don't rotate or move it — fiddle-leaf
   figs drop leaves in protest at drafts and relocation; wipe dust off the

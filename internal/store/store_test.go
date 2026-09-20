@@ -44,11 +44,11 @@ func TestSpeciesPlantAndCareRoundTrip(t *testing.T) {
 		t.Fatalf("created plant = %+v", p)
 	}
 
-	if err := tasks.Enable(ctx, p.ID, domain.Water); err != nil {
+	if err := tasks.Enable(ctx, p.ID, domain.WaterSlug); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
 	until := domain.Date{Year: 2026, Month: time.September, Day: 20}
-	if err := tasks.Snooze(ctx, p.ID, domain.Water, &until); err != nil {
+	if err := tasks.Snooze(ctx, p.ID, domain.WaterSlug, &until); err != nil {
 		t.Fatalf("Snooze: %v", err)
 	}
 	list, err := tasks.List(ctx, p.ID)
@@ -219,7 +219,7 @@ func TestBatchReadsMatchPerPlantReads(t *testing.T) {
 	}
 
 	until := domain.Date{Year: 2026, Month: time.October, Day: 1}
-	if err := tasks.Snooze(ctx, ids[2], domain.Prune, &until); err != nil {
+	if err := tasks.Snooze(ctx, ids[2], "prune", &until); err != nil {
 		t.Fatalf("Snooze: %v", err)
 	}
 
@@ -267,5 +267,147 @@ func TestBatchReadsMatchPerPlantReads(t *testing.T) {
 	empty, err := events.LatestByKindForPlants(ctx, nil)
 	if err != nil || len(empty) != 0 {
 		t.Errorf("empty id list = %v, %v; want an empty map and no error", empty, err)
+	}
+}
+
+// TestSpeciesTasksRoundTripAndOrdering exercises UpsertAll/List/Get with a
+// real task list, including a species with two tasks of the same kind —
+// lavender's hard spring prune and light after-flowering trim — which the
+// old three-column shape could never express.
+func TestSpeciesTasksRoundTripAndOrdering(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	species := NewSpeciesRepo(pool)
+
+	lavender := domain.Species{
+		Slug: "lavandula-angustifolia", CommonName: "English lavender",
+		Description: "Prefers poor, sharply-draining soil and full sun.",
+		Placement:   domain.Outdoor, Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7,
+		BaseIntervalDays: 8, MinIntervalDays: 4, MaxIntervalDays: 21, MinTempC: -15,
+		Tasks: []domain.SpeciesTask{
+			{Slug: "prune-hard", Kind: domain.Prune, Label: "Hard prune",
+				IntervalDays: 365, ActiveMonths: []time.Month{time.March}},
+			{Slug: "trim-after-flowering", Kind: domain.Prune, Label: "Trim after flowering",
+				IntervalDays: 365, ActiveMonths: []time.Month{time.August}},
+			{Slug: "repot", Kind: domain.Repot, Label: "Repot",
+				IntervalDays: 1095},
+		},
+	}
+	if err := species.UpsertAll(ctx, []domain.Species{lavender}); err != nil {
+		t.Fatalf("UpsertAll: %v", err)
+	}
+
+	got, err := species.Get(ctx, "lavandula-angustifolia")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Description != lavender.Description {
+		t.Errorf("Description = %q, want %q", got.Description, lavender.Description)
+	}
+	if len(got.Tasks) != 3 {
+		t.Fatalf("Tasks = %+v, want 3", got.Tasks)
+	}
+	// Insertion order (sort_order) must survive the round trip: two tasks of
+	// the same kind are only distinguishable by slug and position.
+	if got.Tasks[0].Slug != "prune-hard" || got.Tasks[1].Slug != "trim-after-flowering" {
+		t.Errorf("task order = [%s, %s], want [prune-hard, trim-after-flowering]",
+			got.Tasks[0].Slug, got.Tasks[1].Slug)
+	}
+	if got.Tasks[0].Kind != domain.Prune || got.Tasks[1].Kind != domain.Prune {
+		t.Errorf("both tasks should be kind=prune: %+v", got.Tasks)
+	}
+
+	list, err := species.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var listed domain.Species
+	for _, s := range list {
+		if s.Slug == "lavandula-angustifolia" {
+			listed = s
+		}
+	}
+	if len(listed.Tasks) != 3 {
+		t.Fatalf("List: Tasks = %+v, want 3 (batch attach failed)", listed.Tasks)
+	}
+
+	// Re-upserting with a shrunk task list must remove the dropped task, not
+	// leave it behind — species_tasks is rebuilt wholesale, like species itself.
+	lavender.Tasks = lavender.Tasks[:1]
+	if err := species.UpsertAll(ctx, []domain.Species{lavender}); err != nil {
+		t.Fatalf("UpsertAll (shrink): %v", err)
+	}
+	got, err = species.Get(ctx, "lavandula-angustifolia")
+	if err != nil {
+		t.Fatalf("Get after shrink: %v", err)
+	}
+	if len(got.Tasks) != 1 || got.Tasks[0].Slug != "prune-hard" {
+		t.Fatalf("Tasks after shrink = %+v, want only prune-hard", got.Tasks)
+	}
+}
+
+// TestTwoTasksOfOneKindTrackIndependentLastDone is the store-layer proof for
+// the reason care_events.task_slug and the (kind, task_slug) grouping exist:
+// lavender's two prune tasks must not collapse onto a single "last pruned"
+// date the way a plain DISTINCT ON (kind) would.
+func TestTwoTasksOfOneKindTrackIndependentLastDone(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	speciesRepo := NewSpeciesRepo(pool)
+	plants := NewPlantRepo(pool)
+	events := NewCareEventRepo(pool)
+
+	mustSpecies(t, speciesRepo, "lavandula-angustifolia")
+	p, err := plants.Create(ctx, domain.Plant{
+		Name: "Bed lavender", SpeciesSlug: "lavandula-angustifolia",
+		Location: domain.Outdoor, InGround: true, FExposure: 1.0, FRain: 0.9, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	hardSlug := "prune-hard"
+	trimSlug := "trim-after-flowering"
+	march := time.Date(2026, time.March, 15, 9, 0, 0, 0, time.UTC)
+	august := time.Date(2026, time.August, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := events.Add(ctx, domain.CareEvent{
+		PlantID: p.ID, Kind: domain.Prune, TaskSlug: &hardSlug, DoneAt: march, Source: "web",
+	}); err != nil {
+		t.Fatalf("Add hard prune: %v", err)
+	}
+	if _, err := events.Add(ctx, domain.CareEvent{
+		PlantID: p.ID, Kind: domain.Prune, TaskSlug: &trimSlug, DoneAt: august, Source: "web",
+	}); err != nil {
+		t.Fatalf("Add trim: %v", err)
+	}
+
+	latest, err := events.LatestByKind(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("LatestByKind: %v", err)
+	}
+	if len(latest) != 2 {
+		t.Fatalf("LatestByKind returned %d events, want 2 (one per task, not one per kind): %+v",
+			len(latest), latest)
+	}
+	bySlug := map[string]domain.CareEvent{}
+	for _, e := range latest {
+		if e.TaskSlug == nil {
+			t.Fatalf("event with nil TaskSlug in a fully-slugged pair: %+v", e)
+		}
+		bySlug[*e.TaskSlug] = e
+	}
+	if !bySlug[hardSlug].DoneAt.Equal(march) {
+		t.Errorf("%s last done %s, want %s", hardSlug, bySlug[hardSlug].DoneAt, march)
+	}
+	if !bySlug[trimSlug].DoneAt.Equal(august) {
+		t.Errorf("%s last done %s, want %s", trimSlug, bySlug[trimSlug].DoneAt, august)
+	}
+
+	batch, err := events.LatestByKindForPlants(ctx, []uuid.UUID{p.ID})
+	if err != nil {
+		t.Fatalf("LatestByKindForPlants: %v", err)
+	}
+	if len(batch[p.ID]) != 2 {
+		t.Fatalf("batch form returned %d events, want 2: %+v", len(batch[p.ID]), batch[p.ID])
 	}
 }

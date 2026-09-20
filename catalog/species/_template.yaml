@@ -22,6 +22,13 @@ common_name: ""
 # is not parsed back into the slug.
 scientific_name: ""
 
+# A paragraph on the plant: what it is, where it comes from, what it wants.
+# This is shown on the plant page alongside care_advice below; the two are
+# not redundant — this is background, care_advice is the practical note.
+# Optional, but a species with real content here is more useful than one
+# without.
+description: ""
+
 # Where this species usually lives. One of: indoor, outdoor.
 # A plant of this species may still override placement at the plant level;
 # this is just the default the picker suggests.
@@ -75,21 +82,48 @@ min_temp_c: 10
 # raise a frost alert. true/false.
 frost_tender: true
 
-# Optional fixed-interval tasks: a plain interval_days plus an optional
-# active_months list (empty means all year). These are not environment-
-# adjusted — see SPEC §7.7. Omit the whole key (comment it out or delete it)
-# for a species that doesn't need the task.
-prune:
-  interval_days: 90
-  active_months: [3, 4, 5, 6]
+# Every fixed-interval task this species needs, in the order the UI and the
+# digest should list them — not environment-adjusted, see SPEC §7.7. Omit the
+# whole key, or leave the list empty, for a species that needs none (some
+# succulents genuinely don't want fertilizing or repotting on a schedule).
+#
+# Each task:
+#   slug          Permanent identity within this species (not globally) —
+#                 kebab-case, e.g. "pinch-flowers". Renaming it orphans every
+#                 care event logged against it. Never "water": that slug is
+#                 reserved for the reservoir-model watering task, which is
+#                 computed per plant and never declared here.
+#   kind          One of the closed vocabulary in SPEC §3: water, prune,
+#                 pinch, deadhead, fertilize, top_dress, repot, divide,
+#                 harvest, mulch, stake, inspect. A species may have more
+#                 than one task of the same kind — see lavandula-angustifolia
+#                 for a real example (a light spring tidy and a harder
+#                 post-flowering cut, both kind: prune, different slugs).
+#   label         What the UI and the digest call this task. Required,
+#                 non-empty — it is what a person actually reads, so make it
+#                 the instruction, not the kind name: "Pinch flower spikes",
+#                 not "Prune".
+#   interval_days How often, in days. Range [1, 3650].
+#   active_months Months (1-12) this task can be due in; empty means all
+#                 year. A date that would otherwise fall outside these months
+#                 moves to the first day of the next active month.
+tasks:
+  - slug: prune
+    kind: prune
+    label: Prune
+    interval_days: 90
+    active_months: [3, 4, 5, 6]
 
-fertilize:
-  interval_days: 30
-  active_months: [3, 4, 5, 6, 7, 8, 9]
+  - slug: fertilize
+    kind: fertilize
+    label: Feed
+    interval_days: 30
+    active_months: [3, 4, 5, 6, 7, 8, 9]
 
-repot:
-  interval_days: 730
-  active_months: []
+  - slug: repot
+    kind: repot
+    label: Repot
+    interval_days: 730
 
 # One or two sentences of real, specific horticultural advice. This is what
 # the UI shows on the plant page — not filler.

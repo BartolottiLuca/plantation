@@ -22,10 +22,10 @@ func (r *CareEventRepo) Add(ctx context.Context, e domain.CareEvent) (domain.Car
 	var out domain.CareEvent
 	err := Retry(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx, `
-			INSERT INTO care_events (plant_id, kind, done_at, note, source)
-			VALUES ($1, $2, $3, $4, $5)
-			RETURNING id, plant_id, kind, done_at, note, source, voided_at`,
-			e.PlantID, string(e.Kind), e.DoneAt, e.Note, e.Source)
+			INSERT INTO care_events (plant_id, kind, task_slug, done_at, note, source)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, plant_id, kind, task_slug, done_at, note, source, voided_at`,
+			e.PlantID, string(e.Kind), e.TaskSlug, e.DoneAt, e.Note, e.Source)
 		got, err := scanCareEvent(row)
 		if err != nil {
 			return fmt.Errorf("adding care event: %w", err)
@@ -51,15 +51,21 @@ func (r *CareEventRepo) Void(ctx context.Context, id int64) error {
 	})
 }
 
+// LatestByKind returns the newest non-voided event for each distinct (kind,
+// task_slug) pair — not each kind alone. A NULL task_slug is its own group per
+// kind (the legacy bucket a pre-migration event falls into); a real slug is
+// its own group regardless of kind, since a slug belongs to exactly one
+// species task. Two tasks sharing a kind — lavender's two prunings — therefore
+// keep independent "last done" dates instead of one collapsing onto the other.
 func (r *CareEventRepo) LatestByKind(ctx context.Context, plantID uuid.UUID) ([]domain.CareEvent, error) {
 	var out []domain.CareEvent
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
-			SELECT DISTINCT ON (kind)
-				id, plant_id, kind, done_at, note, source, voided_at
+			SELECT DISTINCT ON (kind, task_slug)
+				id, plant_id, kind, task_slug, done_at, note, source, voided_at
 			FROM care_events
 			WHERE plant_id = $1 AND voided_at IS NULL
-			ORDER BY kind, done_at DESC, id DESC`, plantID)
+			ORDER BY kind, task_slug, done_at DESC, id DESC`, plantID)
 		if err != nil {
 			return fmt.Errorf("latest care events: %w", err)
 		}
@@ -90,7 +96,7 @@ func (r *CareEventRepo) SinceDate(ctx context.Context, plantID uuid.UUID, kind d
 	var out []domain.CareEvent
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
-			SELECT id, plant_id, kind, done_at, note, source, voided_at
+			SELECT id, plant_id, kind, task_slug, done_at, note, source, voided_at
 			FROM care_events
 			WHERE plant_id = $1 AND kind = $2 AND done_at >= $3
 			ORDER BY done_at ASC, id ASC`,
@@ -123,20 +129,22 @@ func (r *CareEventRepo) SinceDate(ctx context.Context, plantID uuid.UUID, kind d
 
 func scanCareEvent(row speciesScanner) (domain.CareEvent, error) {
 	var (
-		e      domain.CareEvent
-		kind   string
-		voided *time.Time
+		e        domain.CareEvent
+		kind     string
+		taskSlug *string
+		voided   *time.Time
 	)
-	if err := row.Scan(&e.ID, &e.PlantID, &kind, &e.DoneAt, &e.Note, &e.Source, &voided); err != nil {
+	if err := row.Scan(&e.ID, &e.PlantID, &kind, &taskSlug, &e.DoneAt, &e.Note, &e.Source, &voided); err != nil {
 		return domain.CareEvent{}, err
 	}
 	e.Kind = domain.TaskKind(kind)
+	e.TaskSlug = taskSlug
 	e.VoidedAt = voided
 	return e, nil
 }
 
 // LatestByKindForPlants is the batch form of LatestByKind: the newest
-// non-voided event per (plant, kind) for every plant named.
+// non-voided event per (plant, kind, task_slug) for every plant named.
 func (r *CareEventRepo) LatestByKindForPlants(ctx context.Context, plantIDs []uuid.UUID) (map[uuid.UUID][]domain.CareEvent, error) {
 	out := map[uuid.UUID][]domain.CareEvent{}
 	if len(plantIDs) == 0 {
@@ -144,11 +152,11 @@ func (r *CareEventRepo) LatestByKindForPlants(ctx context.Context, plantIDs []uu
 	}
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
-			SELECT DISTINCT ON (plant_id, kind)
-				id, plant_id, kind, done_at, note, source, voided_at
+			SELECT DISTINCT ON (plant_id, kind, task_slug)
+				id, plant_id, kind, task_slug, done_at, note, source, voided_at
 			FROM care_events
 			WHERE plant_id = ANY($1) AND voided_at IS NULL
-			ORDER BY plant_id, kind, done_at DESC, id DESC`, plantIDs)
+			ORDER BY plant_id, kind, task_slug, done_at DESC, id DESC`, plantIDs)
 		if err != nil {
 			return fmt.Errorf("latest care events: %w", err)
 		}

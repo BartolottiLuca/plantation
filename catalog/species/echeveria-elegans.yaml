@@ -1,5 +1,9 @@
 common_name: Mexican snowball
 scientific_name: Echeveria elegans
+description: >-
+  A rosette-forming succulent from semi-desert Mexico, storing water in thick
+  powdery-blue leaves. Built to survive drought and full sun, not to forgive
+  a substrate that stays wet.
 placement: indoor
 kc: 0.25
 substrate: cactus
@@ -11,12 +15,16 @@ dormant_months: [11, 12, 1, 2]
 dormancy_factor: 0.4
 min_temp_c: 5
 frost_tender: true
-fertilize:
-  interval_days: 60
-  active_months: [4, 5, 6, 7, 8]
-repot:
-  interval_days: 730
-  active_months: []
+tasks:
+  - slug: fertilize
+    kind: fertilize
+    label: Feed
+    interval_days: 60
+    active_months: [4, 5, 6, 7, 8]
+  - slug: repot
+    kind: repot
+    label: Repot
+    interval_days: 730
 care_advice: >-
   Needs the brightest windowsill available and a fast-draining gritty mix;
   water thoroughly, then let it dry completely — a mushy, translucent rosette

@@ -103,11 +103,10 @@ func (r *PlantRepo) List(ctx context.Context) ([]PlantWithSpecies, error) {
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
 			SELECT `+plantColumnsPrefixed("p")+`,
-				s.slug, s.common_name, s.scientific_name, s.placement, s.kc, s.substrate, s.mad,
+				s.slug, s.common_name, s.scientific_name, s.description, s.placement, s.kc, s.substrate, s.mad,
 				s.base_interval_days, s.min_interval_days, s.max_interval_days,
 				s.dormant_months, s.dormancy_factor, s.min_temp_c, s.frost_tender,
-				s.prune_interval_days, s.prune_months, s.fert_interval_days, s.fert_months,
-				s.repot_interval_days, s.care_advice, s.retired
+				s.care_advice, s.retired
 			FROM plants p
 			JOIN species s ON s.slug = p.species_slug
 			ORDER BY p.name, p.id`)
@@ -125,6 +124,20 @@ func (r *PlantRepo) List(ctx context.Context) ([]PlantWithSpecies, error) {
 		}
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("listing plants: %w", err)
+		}
+		// species_tasks is one-to-many and cannot be joined into the row above
+		// without duplicating plants, so it is attached in a second batch query —
+		// the same pattern SpeciesRepo.List uses, and still one query, not one
+		// per plant.
+		bySlug := make([]domain.Species, len(out))
+		for i := range out {
+			bySlug[i] = out[i].Species
+		}
+		if err := attachTasks(ctx, r.pool, bySlug); err != nil {
+			return fmt.Errorf("listing plants: %w", err)
+		}
+		for i := range out {
+			out[i].Species.Tasks = bySlug[i].Tasks
 		}
 		return nil
 	})
@@ -208,30 +221,24 @@ func applyPot(p *domain.Plant, pot sql.NullInt32) {
 
 func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 	var (
-		p           domain.Plant
-		location    string
-		substrate   *string
-		pot         sql.NullInt32
-		s           domain.Species
-		sPlacement  string
-		sSubstrate  string
-		dormant     []int32
-		pruneDays   *int
-		pruneMonths []int32
-		fertDays    *int
-		fertMonths  []int32
-		repotDays   *int
+		p          domain.Plant
+		location   string
+		substrate  *string
+		pot        sql.NullInt32
+		s          domain.Species
+		sPlacement string
+		sSubstrate string
+		dormant    []int32
 	)
 	err := row.Scan(
 		&p.ID, &p.Name, &p.SpeciesSlug, &location, &p.Place, &p.TadoRoomID, &pot,
 		&p.FExposure, &p.FRain, &p.AcquiredAt, &p.Active, &p.Notes,
 		&p.Overrides.Kc, &p.Overrides.MAD, &substrate,
 		&p.Overrides.BaseIntervalDays, &p.Overrides.MinIntervalDays, &p.Overrides.MaxIntervalDays,
-		&s.Slug, &s.CommonName, &s.ScientificName, &sPlacement, &s.Kc, &sSubstrate, &s.MAD,
+		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &sPlacement, &s.Kc, &sSubstrate, &s.MAD,
 		&s.BaseIntervalDays, &s.MinIntervalDays, &s.MaxIntervalDays,
 		&dormant, &s.DormancyFactor, &s.MinTempC, &s.FrostTender,
-		&pruneDays, &pruneMonths, &fertDays, &fertMonths,
-		&repotDays, &s.CareAdvice, &s.Retired,
+		&s.CareAdvice, &s.Retired,
 	)
 	if err != nil {
 		return PlantWithSpecies{}, err
@@ -245,10 +252,8 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 	s.Placement = domain.Location(sPlacement)
 	s.Substrate = domain.SubstrateKind(sSubstrate)
 	s.DormantMonths = intsToMonths(dormant)
-	s.Prune = optionalFixed(pruneDays, pruneMonths)
-	s.Fertilize = optionalFixed(fertDays, fertMonths)
-	if repotDays != nil {
-		s.Repot = &domain.FixedTask{IntervalDays: *repotDays}
-	}
+	// s.Tasks is attached by the caller (PlantRepo.List, or GetWithSpecies if
+	// one exists) in a batch query — species_tasks is one-to-many and cannot
+	// be scanned out of this single plant/species row.
 	return PlantWithSpecies{Plant: p, Species: s}, nil
 }

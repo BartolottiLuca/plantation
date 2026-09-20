@@ -1,5 +1,10 @@
 common_name: English lavender
 scientific_name: Lavandula angustifolia
+description: >-
+  A Mediterranean sub-shrub grown for scented silver foliage and summer flower
+  spikes. Evolved for poor, stony, sharp-draining soil in full sun, so it is
+  killed far more often by kindness — rich compost or a wet pot — than by
+  neglect.
 placement: outdoor
 kc: 0.4
 substrate: cactus
@@ -10,14 +15,26 @@ max_interval_days: 21
 dormant_months: []
 min_temp_c: -15
 frost_tender: false
-prune:
-  interval_days: 365
-  active_months: [8, 9]
-repot:
-  interval_days: 1095
-  active_months: []
+tasks:
+  - slug: spring-tidy
+    kind: prune
+    label: Tidy after winter
+    interval_days: 365
+    active_months: [3]
+  - slug: prune-after-flowering
+    kind: prune
+    label: Cut back after flowering
+    interval_days: 365
+    active_months: [8]
+  - slug: repot
+    kind: repot
+    label: Repot
+    interval_days: 1095
 care_advice: >-
   Prefers poor, sharply-draining soil and full sun; rich compost or a
-  waterlogged pot kills it faster than a dry summer ever will. Trim back hard
-  right after flowering to stop it going woody and leggy.
+  waterlogged pot kills it faster than a dry summer ever will. The spring
+  tidy only removes winter-damaged tips — stay in the green growth. The real
+  shaping cut comes right after flowering: take off the spent flower stems
+  and a couple of centimetres of leafy growth with them, but never cut into
+  the bare woody stems below, which will not reliably resprout.
 retired: false

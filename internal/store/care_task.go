@@ -22,10 +22,10 @@ func (r *CareTaskRepo) List(ctx context.Context, plantID uuid.UUID) ([]CareTask,
 	var out []CareTask
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
-			SELECT id, plant_id, kind, enabled, interval_days_override, snoozed_until
+			SELECT id, plant_id, task_slug, enabled, interval_days_override, snoozed_until
 			FROM care_tasks
 			WHERE plant_id = $1
-			ORDER BY kind`, plantID)
+			ORDER BY task_slug`, plantID)
 		if err != nil {
 			return fmt.Errorf("listing care tasks: %w", err)
 		}
@@ -56,14 +56,14 @@ func (r *CareTaskRepo) Upsert(ctx context.Context, t CareTask) (CareTask, error)
 	var out CareTask
 	err := Retry(ctx, func(ctx context.Context) error {
 		row := r.pool.QueryRow(ctx, `
-			INSERT INTO care_tasks (plant_id, kind, enabled, interval_days_override, snoozed_until)
+			INSERT INTO care_tasks (plant_id, task_slug, enabled, interval_days_override, snoozed_until)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (plant_id, kind) DO UPDATE SET
+			ON CONFLICT (plant_id, task_slug) DO UPDATE SET
 				enabled = EXCLUDED.enabled,
 				interval_days_override = EXCLUDED.interval_days_override,
 				snoozed_until = EXCLUDED.snoozed_until
-			RETURNING id, plant_id, kind, enabled, interval_days_override, snoozed_until`,
-			t.PlantID, string(t.Kind), t.Enabled, t.IntervalDaysOverride, dateArg(t.SnoozedUntil))
+			RETURNING id, plant_id, task_slug, enabled, interval_days_override, snoozed_until`,
+			t.PlantID, t.TaskSlug, t.Enabled, t.IntervalDaysOverride, dateArg(t.SnoozedUntil))
 		got, err := scanCareTask(row)
 		if err != nil {
 			return fmt.Errorf("upserting care task: %w", err)
@@ -74,21 +74,21 @@ func (r *CareTaskRepo) Upsert(ctx context.Context, t CareTask) (CareTask, error)
 	return out, err
 }
 
-func (r *CareTaskRepo) Enable(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind) error {
-	return r.setEnabled(ctx, plantID, kind, true)
+func (r *CareTaskRepo) Enable(ctx context.Context, plantID uuid.UUID, taskSlug string) error {
+	return r.setEnabled(ctx, plantID, taskSlug, true)
 }
 
-func (r *CareTaskRepo) Disable(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind) error {
-	return r.setEnabled(ctx, plantID, kind, false)
+func (r *CareTaskRepo) Disable(ctx context.Context, plantID uuid.UUID, taskSlug string) error {
+	return r.setEnabled(ctx, plantID, taskSlug, false)
 }
 
-func (r *CareTaskRepo) setEnabled(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind, enabled bool) error {
+func (r *CareTaskRepo) setEnabled(ctx context.Context, plantID uuid.UUID, taskSlug string, enabled bool) error {
 	return Retry(ctx, func(ctx context.Context) error {
 		_, err := r.pool.Exec(ctx, `
-			INSERT INTO care_tasks (plant_id, kind, enabled)
+			INSERT INTO care_tasks (plant_id, task_slug, enabled)
 			VALUES ($1, $2, $3)
-			ON CONFLICT (plant_id, kind) DO UPDATE SET enabled = EXCLUDED.enabled`,
-			plantID, string(kind), enabled)
+			ON CONFLICT (plant_id, task_slug) DO UPDATE SET enabled = EXCLUDED.enabled`,
+			plantID, taskSlug, enabled)
 		if err != nil {
 			return fmt.Errorf("setting care task enabled: %w", err)
 		}
@@ -96,13 +96,13 @@ func (r *CareTaskRepo) setEnabled(ctx context.Context, plantID uuid.UUID, kind d
 	})
 }
 
-func (r *CareTaskRepo) Snooze(ctx context.Context, plantID uuid.UUID, kind domain.TaskKind, until *domain.Date) error {
+func (r *CareTaskRepo) Snooze(ctx context.Context, plantID uuid.UUID, taskSlug string, until *domain.Date) error {
 	return Retry(ctx, func(ctx context.Context) error {
 		_, err := r.pool.Exec(ctx, `
-			INSERT INTO care_tasks (plant_id, kind, snoozed_until)
+			INSERT INTO care_tasks (plant_id, task_slug, snoozed_until)
 			VALUES ($1, $2, $3)
-			ON CONFLICT (plant_id, kind) DO UPDATE SET snoozed_until = EXCLUDED.snoozed_until`,
-			plantID, string(kind), dateArg(until))
+			ON CONFLICT (plant_id, task_slug) DO UPDATE SET snoozed_until = EXCLUDED.snoozed_until`,
+			plantID, taskSlug, dateArg(until))
 		if err != nil {
 			return fmt.Errorf("snoozing care task: %w", err)
 		}
@@ -113,13 +113,11 @@ func (r *CareTaskRepo) Snooze(ctx context.Context, plantID uuid.UUID, kind domai
 func scanCareTask(row speciesScanner) (CareTask, error) {
 	var (
 		t     CareTask
-		kind  string
 		until *time.Time
 	)
-	if err := row.Scan(&t.ID, &t.PlantID, &kind, &t.Enabled, &t.IntervalDaysOverride, &until); err != nil {
+	if err := row.Scan(&t.ID, &t.PlantID, &t.TaskSlug, &t.Enabled, &t.IntervalDaysOverride, &until); err != nil {
 		return CareTask{}, err
 	}
-	t.Kind = domain.TaskKind(kind)
 	t.SnoozedUntil = optionalDate(until)
 	return t, nil
 }
@@ -133,10 +131,10 @@ func (r *CareTaskRepo) ListForPlants(ctx context.Context, plantIDs []uuid.UUID) 
 	}
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
-			SELECT id, plant_id, kind, enabled, interval_days_override, snoozed_until
+			SELECT id, plant_id, task_slug, enabled, interval_days_override, snoozed_until
 			FROM care_tasks
 			WHERE plant_id = ANY($1)
-			ORDER BY plant_id, kind`, plantIDs)
+			ORDER BY plant_id, task_slug`, plantIDs)
 		if err != nil {
 			return fmt.Errorf("listing care tasks: %w", err)
 		}

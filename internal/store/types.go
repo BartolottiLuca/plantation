@@ -25,14 +25,28 @@ const (
 	NotificationFailed  = "failed"
 )
 
-// CareTask is a per-plant enable/snooze row. It is not a domain type.
+// CareTask is a per-plant enable/snooze row, keyed on the species task's slug
+// rather than its kind — a species may have two tasks of one kind (lavender's
+// two prunings), and each needs its own row. It is not a domain type.
 type CareTask struct {
 	ID                   int64
 	PlantID              uuid.UUID
-	Kind                 domain.TaskKind
+	TaskSlug             string
 	Enabled              bool
 	IntervalDaysOverride *int
 	SnoozedUntil         *domain.Date
+}
+
+// SpeciesTask is the species_tasks row form of domain.SpeciesTask, plus the
+// display ordering that isn't part of the domain type.
+type SpeciesTask struct {
+	SpeciesSlug  string
+	Slug         string
+	Kind         domain.TaskKind
+	Label        string
+	IntervalDays int
+	ActiveMonths []time.Month
+	SortOrder    int
 }
 
 // PlantWithSpecies is a plant list row with its catalog species joined.

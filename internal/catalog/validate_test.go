@@ -190,3 +190,147 @@ func TestPlacementAndSubstrateEnumsRejected(t *testing.T) {
 		t.Errorf("want substrate enum error, got %q", joined)
 	}
 }
+
+func baseValidYAML() speciesYAML {
+	return speciesYAML{
+		CommonName:       "X",
+		ScientificName:   "Y",
+		Placement:        "indoor",
+		Kc:               0.7,
+		Substrate:        "peat",
+		MAD:              0.5,
+		BaseIntervalDays: 6,
+		MinIntervalDays:  3,
+		MaxIntervalDays:  21,
+	}
+}
+
+func TestTaskDuplicateSlugRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "prune", Kind: "prune", Label: "Prune", IntervalDays: 90},
+		{Slug: "prune", Kind: "prune", Label: "Prune again", IntervalDays: 30},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), `task "prune": slug is not unique`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want a duplicate-slug error, got %v", errs)
+	}
+}
+
+func TestTaskUnknownKindRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "misting", Kind: "misting", Label: "Mist", IntervalDays: 7},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), `kind "misting" is not in the care vocabulary`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want an unknown-kind error, got %v", errs)
+	}
+}
+
+func TestTaskWaterSlugReserved(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "water", Kind: "water", Label: "Water", IntervalDays: 7},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), `"water" is reserved`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want a reserved-slug error, got %v", errs)
+	}
+}
+
+func TestTaskEmptyLabelRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "prune", Kind: "prune", Label: "", IntervalDays: 90},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), `task "prune": label is required`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want an empty-label error, got %v", errs)
+	}
+}
+
+func TestTaskSlugNotKebabCaseRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "Pinch_Flowers", Kind: "pinch", Label: "Pinch", IntervalDays: 14},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Error(), "must be kebab-case") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want a kebab-case error, got %v", errs)
+	}
+}
+
+func TestTaskIntervalDaysOutOfRangeRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "prune", Kind: "prune", Label: "Prune", IntervalDays: 0},
+		{Slug: "feed", Kind: "fertilize", Label: "Feed", IntervalDays: 4000},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	joined := ""
+	for _, e := range errs {
+		joined += e.Error() + "\n"
+	}
+	if !strings.Contains(joined, `task "prune": interval_days 0 out of range`) {
+		t.Errorf("want a too-low interval error, got %q", joined)
+	}
+	if !strings.Contains(joined, `task "feed": interval_days 4000 out of range`) {
+		t.Errorf("want a too-high interval error, got %q", joined)
+	}
+}
+
+func TestTaskActiveMonthsOutOfRangeRejected(t *testing.T) {
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "prune", Kind: "prune", Label: "Prune", IntervalDays: 90, ActiveMonths: []int{0, 13}},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	if len(errs) < 2 {
+		t.Fatalf("want an error per out-of-range month, got %v", errs)
+	}
+}
+
+func TestTwoTasksOfOneKindAreValid(t *testing.T) {
+	// The whole reason task identity exists: lavender's two prunings must not
+	// be rejected as duplicates just because they share a kind.
+	y := baseValidYAML()
+	y.Tasks = []speciesTaskYAML{
+		{Slug: "spring-tidy", Kind: "prune", Label: "Spring tidy", IntervalDays: 365, ActiveMonths: []int{3}},
+		{Slug: "prune-after-flowering", Kind: "prune", Label: "Cut back after flowering", IntervalDays: 365, ActiveMonths: []int{8}},
+	}
+	errs := validate("catalog/species/test-species.yaml", "test-species", y)
+	if len(errs) != 0 {
+		t.Fatalf("two tasks sharing a kind should validate cleanly, got %v", errs)
+	}
+}

@@ -1,5 +1,9 @@
 common_name: Boston fern
 scientific_name: Nephrolepis exaltata
+description: >-
+  A humidity-loving fern from tropical forest floors, grown for dense arching
+  fronds. Shallow-rooted and thin-leaved by nature, so it has almost no
+  buffer against a dry substrate or dry indoor air.
 placement: indoor
 kc: 1.0
 substrate: coir
@@ -11,12 +15,16 @@ dormant_months: [12, 1, 2]
 dormancy_factor: 0.6
 min_temp_c: 12
 frost_tender: true
-fertilize:
-  interval_days: 30
-  active_months: [4, 5, 6, 7, 8, 9]
-repot:
-  interval_days: 365
-  active_months: []
+tasks:
+  - slug: fertilize
+    kind: fertilize
+    label: Feed
+    interval_days: 30
+    active_months: [4, 5, 6, 7, 8, 9]
+  - slug: repot
+    kind: repot
+    label: Repot
+    interval_days: 365
 care_advice: >-
   Wants a constantly moist substrate and humid air, not just watering on a
   schedule; crispy brown frond tips mean the air is too dry, not that it

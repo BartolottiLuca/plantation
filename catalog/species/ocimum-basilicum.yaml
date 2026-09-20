@@ -1,5 +1,10 @@
 common_name: Basil
 scientific_name: Ocimum basilicum
+description: >-
+  A tender annual culinary herb grown for its leaves, not its flowers.
+  Once it sets seed the plant's energy shifts from leaf production to
+  flowering and the leaves turn bitter, which is why this is the one task on
+  this list that exists purely to fight the plant's own biology.
 placement: outdoor
 kc: 1.1
 substrate: peat
@@ -10,12 +15,17 @@ max_interval_days: 10
 dormant_months: []
 min_temp_c: 10
 frost_tender: true
-prune:
-  interval_days: 14
-  active_months: [5, 6, 7, 8, 9]
-fertilize:
-  interval_days: 14
-  active_months: [4, 5, 6, 7, 8, 9]
+tasks:
+  - slug: pinch-flowers
+    kind: pinch
+    label: Pinch flower spikes
+    interval_days: 14
+    active_months: [5, 6, 7, 8, 9]
+  - slug: fertilize
+    kind: fertilize
+    label: Feed
+    interval_days: 14
+    active_months: [4, 5, 6, 7, 8, 9]
 care_advice: >-
   Pinch off flower spikes as soon as they appear to keep the plant producing
   leaves instead of seed; it wilts dramatically within hours of the pot

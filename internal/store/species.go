@@ -26,21 +26,20 @@ func (r *SpeciesRepo) UpsertAll(ctx context.Context, species []domain.Species) e
 
 		const q = `
 			INSERT INTO species (
-				slug, common_name, scientific_name, placement, kc, substrate, mad,
+				slug, common_name, scientific_name, description, placement, kc, substrate, mad,
 				base_interval_days, min_interval_days, max_interval_days,
 				dormant_months, dormancy_factor, min_temp_c, frost_tender,
-				prune_interval_days, prune_months, fert_interval_days, fert_months,
-				repot_interval_days, care_advice, retired, updated_at
+				care_advice, retired, updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7,
-				$8, $9, $10,
-				$11, $12, $13, $14,
-				$15, $16, $17, $18,
-				$19, $20, $21, now()
+				$1, $2, $3, $4, $5, $6, $7, $8,
+				$9, $10, $11,
+				$12, $13, $14, $15,
+				$16, $17, now()
 			)
 			ON CONFLICT (slug) DO UPDATE SET
 				common_name = EXCLUDED.common_name,
 				scientific_name = EXCLUDED.scientific_name,
+				description = EXCLUDED.description,
 				placement = EXCLUDED.placement,
 				kc = EXCLUDED.kc,
 				substrate = EXCLUDED.substrate,
@@ -52,32 +51,37 @@ func (r *SpeciesRepo) UpsertAll(ctx context.Context, species []domain.Species) e
 				dormancy_factor = EXCLUDED.dormancy_factor,
 				min_temp_c = EXCLUDED.min_temp_c,
 				frost_tender = EXCLUDED.frost_tender,
-				prune_interval_days = EXCLUDED.prune_interval_days,
-				prune_months = EXCLUDED.prune_months,
-				fert_interval_days = EXCLUDED.fert_interval_days,
-				fert_months = EXCLUDED.fert_months,
-				repot_interval_days = EXCLUDED.repot_interval_days,
 				care_advice = EXCLUDED.care_advice,
 				retired = EXCLUDED.retired,
 				updated_at = now()`
 
 		for _, s := range species {
-			pruneDays, pruneMonths := fixedTaskArgs(s.Prune)
-			fertDays, fertMonths := fixedTaskArgs(s.Fertilize)
-			var repotDays any
-			if s.Repot != nil {
-				repotDays = s.Repot.IntervalDays
-			}
 			_, err := tx.Exec(ctx, q,
-				s.Slug, s.CommonName, s.ScientificName, string(s.Placement),
+				s.Slug, s.CommonName, s.ScientificName, s.Description, string(s.Placement),
 				s.Kc, string(s.Substrate), s.MAD,
 				s.BaseIntervalDays, s.MinIntervalDays, s.MaxIntervalDays,
 				monthsToInts(s.DormantMonths), s.DormancyFactor, s.MinTempC, s.FrostTender,
-				pruneDays, pruneMonths, fertDays, fertMonths,
-				repotDays, s.CareAdvice, s.Retired,
+				s.CareAdvice, s.Retired,
 			)
 			if err != nil {
 				return fmt.Errorf("upserting species %s: %w", s.Slug, err)
+			}
+			// species_tasks is rebuilt wholesale per species, exactly like species
+			// itself: delete-then-insert is simpler and just as correct as diffing
+			// when the whole set is rewritten at every boot anyway.
+			if _, err := tx.Exec(ctx, `DELETE FROM species_tasks WHERE species_slug = $1`, s.Slug); err != nil {
+				return fmt.Errorf("clearing tasks for species %s: %w", s.Slug, err)
+			}
+			for i, task := range s.Tasks {
+				_, err := tx.Exec(ctx, `
+					INSERT INTO species_tasks
+						(species_slug, slug, kind, label, interval_days, active_months, sort_order)
+					VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					s.Slug, task.Slug, string(task.Kind), task.Label,
+					task.IntervalDays, monthsToInts(task.ActiveMonths), i)
+				if err != nil {
+					return fmt.Errorf("upserting task %s for species %s: %w", task.Slug, s.Slug, err)
+				}
 			}
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -106,7 +110,7 @@ func (r *SpeciesRepo) List(ctx context.Context) ([]domain.Species, error) {
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("listing species: %w", err)
 		}
-		return nil
+		return attachTasks(ctx, r.pool, out)
 	})
 	if err != nil {
 		return nil, err
@@ -125,6 +129,11 @@ func (r *SpeciesRepo) Get(ctx context.Context, slug string) (domain.Species, err
 		if err != nil {
 			return fmt.Errorf("getting species %s: %w", slug, mapNoRows(err))
 		}
+		tasks, err := loadTasks(ctx, r.pool, []string{slug})
+		if err != nil {
+			return fmt.Errorf("getting species %s: %w", slug, err)
+		}
+		got.Tasks = tasks[slug]
 		s = got
 		return nil
 	})
@@ -132,12 +141,15 @@ func (r *SpeciesRepo) Get(ctx context.Context, slug string) (domain.Species, err
 }
 
 const speciesSelect = `
-	SELECT slug, common_name, scientific_name, placement, kc, substrate, mad,
+	SELECT slug, common_name, scientific_name, description, placement, kc, substrate, mad,
 		base_interval_days, min_interval_days, max_interval_days,
 		dormant_months, dormancy_factor, min_temp_c, frost_tender,
-		prune_interval_days, prune_months, fert_interval_days, fert_months,
-		repot_interval_days, care_advice, retired
+		care_advice, retired
 	FROM species`
+
+const speciesTasksSelect = `
+	SELECT species_slug, slug, kind, label, interval_days, active_months
+	FROM species_tasks`
 
 type speciesScanner interface {
 	Scan(dest ...any) error
@@ -145,22 +157,16 @@ type speciesScanner interface {
 
 func scanSpecies(row speciesScanner) (domain.Species, error) {
 	var (
-		s           domain.Species
-		placement   string
-		substrate   string
-		dormant     []int32
-		pruneDays   *int
-		pruneMonths []int32
-		fertDays    *int
-		fertMonths  []int32
-		repotDays   *int
+		s         domain.Species
+		placement string
+		substrate string
+		dormant   []int32
 	)
 	err := row.Scan(
-		&s.Slug, &s.CommonName, &s.ScientificName, &placement, &s.Kc, &substrate, &s.MAD,
+		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &placement, &s.Kc, &substrate, &s.MAD,
 		&s.BaseIntervalDays, &s.MinIntervalDays, &s.MaxIntervalDays,
 		&dormant, &s.DormancyFactor, &s.MinTempC, &s.FrostTender,
-		&pruneDays, &pruneMonths, &fertDays, &fertMonths,
-		&repotDays, &s.CareAdvice, &s.Retired,
+		&s.CareAdvice, &s.Retired,
 	)
 	if err != nil {
 		return domain.Species{}, err
@@ -168,27 +174,55 @@ func scanSpecies(row speciesScanner) (domain.Species, error) {
 	s.Placement = domain.Location(placement)
 	s.Substrate = domain.SubstrateKind(substrate)
 	s.DormantMonths = intsToMonths(dormant)
-	s.Prune = optionalFixed(pruneDays, pruneMonths)
-	s.Fertilize = optionalFixed(fertDays, fertMonths)
-	if repotDays != nil {
-		s.Repot = &domain.FixedTask{IntervalDays: *repotDays}
-	}
 	return s, nil
 }
 
-func fixedTaskArgs(t *domain.FixedTask) (days any, months []int32) {
-	if t == nil {
-		return nil, []int32{}
+// attachTasks batch-loads species_tasks for every species in the slice and
+// sets each one's Tasks field. species_tasks is one-to-many, so it cannot be
+// joined into the single-row species query without duplicating species rows.
+func attachTasks(ctx context.Context, pool *pgxpool.Pool, species []domain.Species) error {
+	slugs := make([]string, len(species))
+	for i, s := range species {
+		slugs[i] = s.Slug
 	}
-	return t.IntervalDays, monthsToInts(t.ActiveMonths)
+	tasks, err := loadTasks(ctx, pool, slugs)
+	if err != nil {
+		return err
+	}
+	for i := range species {
+		species[i].Tasks = tasks[species[i].Slug]
+	}
+	return nil
 }
 
-func optionalFixed(days *int, months []int32) *domain.FixedTask {
-	if days == nil {
-		return nil
+func loadTasks(ctx context.Context, pool *pgxpool.Pool, slugs []string) (map[string][]domain.SpeciesTask, error) {
+	out := map[string][]domain.SpeciesTask{}
+	if len(slugs) == 0 {
+		return out, nil
 	}
-	return &domain.FixedTask{
-		IntervalDays: *days,
-		ActiveMonths: intsToMonths(months),
+	rows, err := pool.Query(ctx, speciesTasksSelect+`
+		WHERE species_slug = ANY($1)
+		ORDER BY species_slug, sort_order`, slugs)
+	if err != nil {
+		return nil, fmt.Errorf("listing species tasks: %w", err)
 	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			speciesSlug string
+			t           domain.SpeciesTask
+			kind        string
+			months      []int32
+		)
+		if err := rows.Scan(&speciesSlug, &t.Slug, &kind, &t.Label, &t.IntervalDays, &months); err != nil {
+			return nil, fmt.Errorf("listing species tasks: %w", err)
+		}
+		t.Kind = domain.TaskKind(kind)
+		t.ActiveMonths = intsToMonths(months)
+		out[speciesSlug] = append(out[speciesSlug], t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing species tasks: %w", err)
+	}
+	return out, nil
 }

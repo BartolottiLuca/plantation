@@ -16,6 +16,7 @@ func convert(slug string, y speciesYAML) domain.Species {
 		Slug:             slug,
 		CommonName:       y.CommonName,
 		ScientificName:   y.ScientificName,
+		Description:      y.Description,
 		Placement:        domain.Location(y.Placement),
 		Kc:               y.Kc,
 		Substrate:        domain.SubstrateKind(y.Substrate),
@@ -27,22 +28,27 @@ func convert(slug string, y speciesYAML) domain.Species {
 		DormancyFactor:   dormancyFactor,
 		MinTempC:         y.MinTempC,
 		FrostTender:      y.FrostTender,
-		Prune:            convertFixedTask(y.Prune),
-		Fertilize:        convertFixedTask(y.Fertilize),
-		Repot:            convertFixedTask(y.Repot),
+		Tasks:            convertTasks(y.Tasks),
 		CareAdvice:       y.CareAdvice,
 		Retired:          y.Retired,
 	}
 }
 
-func convertFixedTask(t *fixedTaskYAML) *domain.FixedTask {
-	if t == nil {
+func convertTasks(in []speciesTaskYAML) []domain.SpeciesTask {
+	if len(in) == 0 {
 		return nil
 	}
-	return &domain.FixedTask{
-		IntervalDays: t.IntervalDays,
-		ActiveMonths: intsToMonths(t.ActiveMonths),
+	out := make([]domain.SpeciesTask, len(in))
+	for i, t := range in {
+		out[i] = domain.SpeciesTask{
+			Slug:         t.Slug,
+			Kind:         domain.TaskKind(t.Kind),
+			Label:        t.Label,
+			IntervalDays: t.IntervalDays,
+			ActiveMonths: intsToMonths(t.ActiveMonths),
+		}
 	}
+	return out
 }
 
 func intsToMonths(in []int) []time.Month {

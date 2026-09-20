@@ -2,6 +2,9 @@ package catalog
 
 import (
 	"fmt"
+	"regexp"
+
+	"github.com/BartolottiLuca/plantation/internal/domain"
 )
 
 // Value ranges from SPEC.md §7.2 (Kc, MAD, dormancy_factor) and the enums
@@ -18,10 +21,18 @@ const (
 
 	monthMin = 1
 	monthMax = 12
+
+	taskIntervalMin = 1
+	taskIntervalMax = 3650
 )
 
 var validSubstrates = []string{"peat", "cactus", "coir"}
 var validPlacements = []string{"indoor", "outdoor"}
+
+// taskSlugPattern matches the same kebab-case a species slug is documented to
+// use: lowercase letters, digits and single hyphens, never leading, trailing
+// or doubled.
+var taskSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // validate checks one decoded species against every rule in SPEC.md §7.2 and
 // the catalog CHECK constraints, returning every violation it finds rather
@@ -72,9 +83,8 @@ func validate(file, slug string, y speciesYAML) []error {
 			fail("dormant_months entry %d out of range [%d, %d]", m, monthMin, monthMax)
 		}
 	}
-	validateFixedTaskMonths(fail, "prune", y.Prune)
-	validateFixedTaskMonths(fail, "fertilize", y.Fertilize)
-	validateFixedTaskMonths(fail, "repot", y.Repot)
+
+	validateTasks(fail, y.Tasks)
 
 	baseOK := true
 	if y.MinIntervalDays >= y.BaseIntervalDays {
@@ -97,16 +107,41 @@ func validate(file, slug string, y speciesYAML) []error {
 	return errs
 }
 
-func validateFixedTaskMonths(fail func(format string, args ...any), field string, t *fixedTaskYAML) {
-	if t == nil {
-		return
-	}
-	if t.IntervalDays < 1 {
-		fail("%s.interval_days %d out of range [%d, <unbounded>]", field, t.IntervalDays, 1)
-	}
-	for _, m := range t.ActiveMonths {
-		if m < monthMin || m > monthMax {
-			fail("%s.active_months entry %d out of range [%d, %d]", field, m, monthMin, monthMax)
+// validateTasks checks every task slug is well-formed, unique within the
+// species, and not the reserved "water" slug; every kind is in the closed
+// vocabulary; every interval and month is in range; and every label is
+// non-empty, since a blank label would ship a blank line in the digest.
+func validateTasks(fail func(format string, args ...any), tasks []speciesTaskYAML) {
+	seen := make(map[string]bool, len(tasks))
+	for _, t := range tasks {
+		if t.Slug == "" {
+			fail("task with kind %q: slug is required", t.Kind)
+			continue
+		}
+		if !taskSlugPattern.MatchString(t.Slug) {
+			fail("task %q: slug must be kebab-case (lowercase letters, digits, single hyphens)", t.Slug)
+		}
+		if t.Slug == domain.WaterSlug {
+			fail("task %q: %q is reserved — watering is scheduled from the reservoir model, not a species task", t.Slug, domain.WaterSlug)
+		}
+		if seen[t.Slug] {
+			fail("task %q: slug is not unique within this species", t.Slug)
+		}
+		seen[t.Slug] = true
+
+		if !domain.TaskKind(t.Kind).Valid() {
+			fail("task %q: kind %q is not in the care vocabulary", t.Slug, t.Kind)
+		}
+		if t.Label == "" {
+			fail("task %q: label is required", t.Slug)
+		}
+		if t.IntervalDays < taskIntervalMin || t.IntervalDays > taskIntervalMax {
+			fail("task %q: interval_days %d out of range [%d, %d]", t.Slug, t.IntervalDays, taskIntervalMin, taskIntervalMax)
+		}
+		for _, m := range t.ActiveMonths {
+			if m < monthMin || m > monthMax {
+				fail("task %q: active_months entry %d out of range [%d, %d]", t.Slug, m, monthMin, monthMax)
+			}
 		}
 	}
 }
