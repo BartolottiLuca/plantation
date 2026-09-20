@@ -67,11 +67,21 @@ this section.
 
 ```go
 type Location string        // "indoor" | "outdoor"
-// `inspect` is log-only: it can be recorded and appears in the care history,
-// but no species field drives it and nothing schedules it. There is no physics
-// and no defensible fixed interval for "have a look at it".
-type TaskKind string        // "water" | "prune" | "fertilize" | "repot" | "inspect"
 type SubstrateKind string   // "peat" | "cactus" | "coir"
+
+// TaskKind is the curated care vocabulary. Closed on purpose: the digest groups
+// by it and the history is queried by it, so a typo must not become a new kind
+// of care. Widening it is an amendment to this section.
+//
+//   water · prune · pinch · deadhead · fertilize · top_dress
+//   repot · divide · harvest · mulch · stake · inspect
+//
+// `inspect` is log-only: it can be recorded and appears in the care history, but
+// no species task drives it. There is no defensible interval for "have a look".
+type TaskKind string
+
+// WaterSlug ("water") is reserved and never appears in Species.Tasks.
+const WaterSlug = "water"
 
 // Date is a civil date with no location. All scheduling comparisons use it.
 type Date struct {
@@ -90,6 +100,7 @@ type Species struct {
     Slug             string          // stable identity, e.g. "monstera-deliciosa"
     CommonName       string
     ScientificName   string
+    Description      string          // a paragraph on the plant
     Placement        Location        // the usual place; a plant may override
     Kc               float64         // crop coefficient
     Substrate        SubstrateKind   // determines ThetaAW
@@ -101,14 +112,22 @@ type Species struct {
     DormancyFactor   float64         // applied during DormantMonths, default 1.0
     MinTempC         float64         // below this it needs protection
     FrostTender      bool
-    Prune            *FixedTask
-    Fertilize        *FixedTask
-    Repot            *FixedTask
+    Tasks            []SpeciesTask   // every fixed-interval task, in display order
     CareAdvice       string
     Retired          bool
 }
 
-type FixedTask struct {
+// SpeciesTask is one declared unit of care. A species may hold several of the
+// same Kind — lavender wants a hard prune in spring and a light trim after
+// flowering — which is why tasks are keyed by Slug rather than by Kind.
+//
+// Slug is a permanent identity within the species, exactly as the species slug
+// is: renaming it orphans every care event referencing it. Unique per species,
+// not globally, so two species may both have `feed`.
+type SpeciesTask struct {
+    Slug         string
+    Kind         TaskKind
+    Label        string              // what the UI and the digest call it
     IntervalDays int
     ActiveMonths []time.Month        // empty means all year
 }
@@ -134,6 +153,7 @@ type CareEvent struct {
     ID       int64
     PlantID  uuid.UUID
     Kind     TaskKind
+    TaskSlug *string                 // nil on rows logged before tasks had identity
     DoneAt   time.Time
     Note     string
     Source   string                  // "web" | "cli"
