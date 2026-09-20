@@ -139,8 +139,8 @@ type Plant struct {
     Location        Location
     Place           string           // "living room windowsill", "front bed"
     TadoRoomID      *string
-    InGround        bool             // outdoor only; pot_diameter_mm is NULL
-    PotDiameterMM   int              // unused when InGround
+    InGround        bool             // outdoor only; pot_diameter_cm is NULL
+    PotDiameterCM   int              // centimeters, as measured; 0 when InGround
     FExposure       float64          // 1.0 sheltered, 1.3 full sun / windy
     FRain           float64          // 0.0 indoor or under eaves, 0.6 partly, 0.9 open
     AcquiredAt      *time.Time
@@ -296,9 +296,9 @@ CREATE TABLE plants (
   location         text NOT NULL CHECK (location IN ('indoor','outdoor')),
   place            text NOT NULL DEFAULT '',
   tado_room_id     text,
-  pot_diameter_mm  int CHECK (
-                     (pot_diameter_mm IS NULL AND location = 'outdoor')
-                     OR (pot_diameter_mm IS NOT NULL AND pot_diameter_mm BETWEEN 40 AND 2000)
+  pot_diameter_cm  int CHECK (
+                     (pot_diameter_cm IS NULL AND location = 'outdoor')
+                     OR (pot_diameter_cm IS NOT NULL AND pot_diameter_cm BETWEEN 4 AND 200)
                    ),
   f_exposure       double precision NOT NULL DEFAULT 1.0,
   f_rain           double precision NOT NULL DEFAULT 0.0,
@@ -514,14 +514,20 @@ an indoor plant must never see outdoor ET0, an outdoor plant must never see `f_d
 C     = θ_aw × D × f_root                 [mm]
 ```
 
+A person enters pot diameter in centimeters — `domain.Plant.PotDiameterCM`, what a
+tape measure reads — and `care.Effective` is the single place that converts it to
+millimeters, because the reservoir model works in the same depth unit as ET0 and
+rainfall. Everything from here down, including `Params.PotDiameterMM`, is millimeters.
+
 A pot:
 
 ```
-D      = 0.8 × pot_diameter_mm            (pot depth; diameter is what people know)
+D      = 0.8 × pot_diameter_mm            (pot depth, in mm; Params has already
+                                            converted from the centimeters a person entered)
 f_root = 0.6                              (effective root zone; water perches below it)
 ```
 
-In the ground (outdoor only; `pot_diameter_mm` is NULL, no pot depth):
+In the ground (outdoor only; `pot_diameter_cm` is NULL, no pot depth):
 
 ```
 D      = 300 mm                           (managed root zone)

@@ -27,7 +27,7 @@ func (r *PlantRepo) Create(ctx context.Context, p domain.Plant) (domain.Plant, e
 		}
 		row := r.pool.QueryRow(ctx, `
 			INSERT INTO plants (
-				id, name, species_slug, location, place, tado_room_id, pot_diameter_mm,
+				id, name, species_slug, location, place, tado_room_id, pot_diameter_cm,
 				f_exposure, f_rain, acquired_at, active, notes,
 				kc_override, mad_override, substrate_override,
 				base_interval_days_override, min_interval_days_override, max_interval_days_override
@@ -67,7 +67,7 @@ func (r *PlantRepo) Update(ctx context.Context, p domain.Plant) error {
 		tag, err := r.pool.Exec(ctx, `
 			UPDATE plants SET
 				name = $2, species_slug = $3, location = $4, place = $5, tado_room_id = $6,
-				pot_diameter_mm = $7, f_exposure = $8, f_rain = $9, acquired_at = $10,
+				pot_diameter_cm = $7, f_exposure = $8, f_rain = $9, acquired_at = $10,
 				active = $11, notes = $12, kc_override = $13, mad_override = $14,
 				substrate_override = $15, base_interval_days_override = $16,
 				min_interval_days_override = $17, max_interval_days_override = $18,
@@ -138,14 +138,14 @@ func (r *PlantRepo) List(ctx context.Context) ([]PlantWithSpecies, error) {
 }
 
 const plantColumns = `
-	id, name, species_slug, location, place, tado_room_id, pot_diameter_mm,
+	id, name, species_slug, location, place, tado_room_id, pot_diameter_cm,
 	f_exposure, f_rain, acquired_at, active, notes,
 	kc_override, mad_override, substrate_override,
 	base_interval_days_override, min_interval_days_override, max_interval_days_override`
 
 func plantColumnsPrefixed(alias string) string {
 	return alias + `.id, ` + alias + `.name, ` + alias + `.species_slug, ` + alias + `.location, ` +
-		alias + `.place, ` + alias + `.tado_room_id, ` + alias + `.pot_diameter_mm, ` +
+		alias + `.place, ` + alias + `.tado_room_id, ` + alias + `.pot_diameter_cm, ` +
 		alias + `.f_exposure, ` + alias + `.f_rain, ` + alias + `.acquired_at, ` +
 		alias + `.active, ` + alias + `.notes, ` +
 		alias + `.kc_override, ` + alias + `.mad_override, ` + alias + `.substrate_override, ` +
@@ -170,7 +170,7 @@ func potArg(p domain.Plant) any {
 	if p.InGround {
 		return nil
 	}
-	return p.PotDiameterMM
+	return p.PotDiameterCM
 }
 
 func scanPlant(row speciesScanner) (domain.Plant, error) {
@@ -203,7 +203,7 @@ func applyPot(p *domain.Plant, pot sql.NullInt32) {
 		p.InGround = true
 		return
 	}
-	p.PotDiameterMM = int(pot.Int32)
+	p.PotDiameterCM = int(pot.Int32)
 }
 
 func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {

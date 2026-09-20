@@ -110,14 +110,17 @@ type SpeciesTask struct {
 }
 
 type Plant struct {
-	ID            uuid.UUID
-	Name          string
-	SpeciesSlug   string
-	Location      Location
-	Place         string
-	TadoRoomID    *string
-	InGround      bool
-	PotDiameterMM int
+	ID          uuid.UUID
+	Name        string
+	SpeciesSlug string
+	Location    Location
+	Place       string
+	TadoRoomID  *string
+	InGround    bool
+	// PotDiameterCM is centimeters, what a person measures with a tape and reads
+	// off a label; 0 when InGround. care.Effective converts to millimeters for
+	// the reservoir model, which works in the same unit as ET0 and rainfall.
+	PotDiameterCM int
 	FExposure     float64
 	FRain         float64
 	AcquiredAt    *time.Time

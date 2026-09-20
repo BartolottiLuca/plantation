@@ -24,7 +24,7 @@ func TestPurgeOlderThanRemovesTelemetryKeepsCareEvents(t *testing.T) {
 		Name:          "Hallway",
 		SpeciesSlug:   "monstera-deliciosa",
 		Location:      domain.Indoor,
-		PotDiameterMM: 180,
+		PotDiameterCM: 18,
 		FExposure:     1,
 		Active:        true,
 	})

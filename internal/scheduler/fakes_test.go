@@ -224,7 +224,7 @@ func testPlant(id uuid.UUID, watered time.Time) store.PlantWithSpecies {
 			Name:          "Alice",
 			SpeciesSlug:   "test-shrub",
 			Location:      domain.Outdoor,
-			PotDiameterMM: 200,
+			PotDiameterCM: 20,
 			FExposure:     1.0,
 			FRain:         0.0,
 			Active:        true,

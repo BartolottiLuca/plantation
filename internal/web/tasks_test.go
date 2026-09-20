@@ -63,7 +63,7 @@ func thirstyPlant(t *testing.T, db *memDB) domain.Plant {
 	acquired := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	return mustCreate(t, db, domain.Plant{
 		Name: "Overdue Monstera", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true, AcquiredAt: &acquired,
+		PotDiameterCM: 18, FExposure: 1, Active: true, AcquiredAt: &acquired,
 	})
 }
 
@@ -232,7 +232,7 @@ func TestDashboardQueryCountIsFlatInPlantCount(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		mustCreate(t, db, domain.Plant{
 			Name: "Plant " + strconv.Itoa(i), SpeciesSlug: "monstera-deliciosa",
-			Location: domain.Indoor, PotDiameterMM: 180, FExposure: 1,
+			Location: domain.Indoor, PotDiameterCM: 18, FExposure: 1,
 			Active: true, AcquiredAt: &acquired,
 		})
 	}

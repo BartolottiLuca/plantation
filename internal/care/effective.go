@@ -4,6 +4,11 @@ import "github.com/BartolottiLuca/plantation/internal/domain"
 
 // Effective is the single COALESCE(plant override, species) resolution.
 // A YAML edit of the catalog cannot silently clobber hand-tuning.
+//
+// It is also the single cm→mm conversion point: domain.Plant stores pot
+// diameter the way a person measures it (centimeters), and Params carries it
+// the way the reservoir model needs it (millimeters, matching ET0 and rainfall
+// depths) — see SPEC §7.1's D = 0.8 × pot_diameter_mm.
 func Effective(p domain.Plant, s domain.Species) Params {
 	params := Params{
 		Location:         p.Location,
@@ -18,7 +23,7 @@ func Effective(p domain.Plant, s domain.Species) Params {
 		FExposure:        p.FExposure,
 		FRain:            p.FRain,
 		InGround:         p.InGround,
-		PotDiameterMM:    p.PotDiameterMM,
+		PotDiameterMM:    p.PotDiameterCM * 10,
 		AcquiredAt:       p.AcquiredAt,
 	}
 	o := p.Overrides

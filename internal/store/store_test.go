@@ -33,7 +33,7 @@ func TestSpeciesPlantAndCareRoundTrip(t *testing.T) {
 		SpeciesSlug:   "monstera-deliciosa",
 		Location:      domain.Indoor,
 		Place:         "hall",
-		PotDiameterMM: 180,
+		PotDiameterCM: 18,
 		FExposure:     1.0,
 		Active:        true,
 	})
@@ -141,7 +141,7 @@ func TestInGroundPlantStoresNullPotDiameter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if !got.InGround || got.PotDiameterMM != 0 {
+	if !got.InGround || got.PotDiameterCM != 0 {
 		t.Fatalf("got %+v", got)
 	}
 	listed, err := plants.List(ctx)
@@ -187,7 +187,7 @@ func TestBatchReadsMatchPerPlantReads(t *testing.T) {
 	for _, name := range []string{"Batch A", "Batch B", "Batch C"} {
 		p, err := plants.Create(ctx, domain.Plant{
 			Name: name, SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-			PotDiameterMM: 180, FExposure: 1.0, Active: true,
+			PotDiameterCM: 18, FExposure: 1.0, Active: true,
 		})
 		if err != nil {
 			t.Fatalf("Create %s: %v", name, err)

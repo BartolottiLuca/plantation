@@ -60,7 +60,7 @@ func validPlantForm(name string) url.Values {
 		"species_slug":    {"monstera-deliciosa"},
 		"location":        {"indoor"},
 		"place":           {"kitchen"},
-		"pot_diameter_mm": {"180"},
+		"pot_diameter_cm": {"18"},
 		"f_exposure":      {"1.0"},
 		"f_rain":          {"0.0"},
 	}
@@ -155,15 +155,15 @@ func TestDashboardGroupsOverdueTodayUpcoming(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	overdue := mustCreate(t, db, domain.Plant{
 		Name: "Overdue Fern", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true, AcquiredAt: &acquired,
+		PotDiameterCM: 18, FExposure: 1, Active: true, AcquiredAt: &acquired,
 	})
 	due := mustCreate(t, db, domain.Plant{
 		Name: "Due Today Ivy", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true,
+		PotDiameterCM: 18, FExposure: 1, Active: true,
 	})
 	up := mustCreate(t, db, domain.Plant{
 		Name: "Upcoming Fig", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true,
+		PotDiameterCM: 18, FExposure: 1, Active: true,
 	})
 	if _, err := db.Add(context.Background(), domain.CareEvent{
 		PlantID: due.ID, Kind: domain.Water, DoneAt: time.Date(2026, time.September, 9, 9, 0, 0, 0, time.UTC), Source: "web",
@@ -196,7 +196,7 @@ func TestPlantListAndDetailNoEnvironment(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	p := mustCreate(t, db, domain.Plant{
 		Name: "Hallway Monstera", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		Place: "hall", PotDiameterMM: 180, FExposure: 1, Active: true, AcquiredAt: &acquired,
+		Place: "hall", PotDiameterCM: 18, FExposure: 1, Active: true, AcquiredAt: &acquired,
 	})
 
 	list := doGET(t, mux, "/plants")
@@ -223,7 +223,7 @@ func TestRetiredSpeciesStillUsable(t *testing.T) {
 	})
 	p := mustCreate(t, db, domain.Plant{
 		Name: "Old Fern", SpeciesSlug: "retired-fern", Location: domain.Indoor,
-		PotDiameterMM: 160, FExposure: 1, Active: true,
+		PotDiameterCM: 16, FExposure: 1, Active: true,
 	})
 
 	neu := doGET(t, mux, "/plants/new")
@@ -243,7 +243,7 @@ func TestActionQueryPreselectsWater(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	p := mustCreate(t, db, domain.Plant{
 		Name: "Link Plant", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true,
+		PotDiameterCM: 18, FExposure: 1, Active: true,
 	})
 	rec := doGET(t, mux, "/plants/"+p.ID.String()+"?action=water")
 	assertStatus(t, rec, http.StatusOK)
@@ -294,7 +294,7 @@ func TestCreateOutdoorInGroundPlant(t *testing.T) {
 	form := validPlantForm("Lavender")
 	form.Set("location", "outdoor")
 	form.Set("container", "ground")
-	form.Del("pot_diameter_mm")
+	form.Del("pot_diameter_cm")
 	form.Set("f_rain", "0.9")
 	form.Set("f_exposure", "1.3")
 	created := doPOST(t, mux, "/plants/new", form)
@@ -309,7 +309,7 @@ func TestCreateOutdoorInGroundPlant(t *testing.T) {
 			p = row.Plant
 		}
 	}
-	if !p.InGround || p.PotDiameterMM != 0 || p.Location != domain.Outdoor {
+	if !p.InGround || p.PotDiameterCM != 0 || p.Location != domain.Outdoor {
 		t.Fatalf("plant = %+v", p)
 	}
 	loc := created.Header().Get("Location")
@@ -334,7 +334,7 @@ func TestCarePostHTMXFragmentAndVoid(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	p := mustCreate(t, db, domain.Plant{
 		Name: "Water Me", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true, AcquiredAt: &acquired,
+		PotDiameterCM: 18, FExposure: 1, Active: true, AcquiredAt: &acquired,
 	})
 
 	full := doPOST(t, mux, "/plants/"+p.ID.String()+"/care/water", nil)
@@ -373,7 +373,7 @@ func TestMutationsArePOSTOnly(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	p := mustCreate(t, db, domain.Plant{
 		Name: "Stay", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true,
+		PotDiameterCM: 18, FExposure: 1, Active: true,
 	})
 	ev, err := db.Add(context.Background(), domain.CareEvent{
 		PlantID: p.ID, Kind: domain.Water, DoneAt: testNow, Source: "web",
@@ -520,7 +520,7 @@ func TestInvalidCareKind(t *testing.T) {
 	_, db, mux := testUI(t, nil)
 	p := mustCreate(t, db, domain.Plant{
 		Name: "X", SpeciesSlug: "monstera-deliciosa", Location: domain.Indoor,
-		PotDiameterMM: 180, FExposure: 1, Active: true,
+		PotDiameterCM: 18, FExposure: 1, Active: true,
 	})
 	rec := doPOST(t, mux, "/plants/"+p.ID.String()+"/care/dance", nil)
 	assertStatus(t, rec, http.StatusBadRequest)

@@ -24,7 +24,7 @@ type plantForm struct {
 	Place         string
 	TadoRoomID    string
 	Container     string
-	PotDiameterMM string
+	PotDiameterCM string
 	FExposure     string
 	FRain         string
 	Kc            string
@@ -42,7 +42,7 @@ func blankForm() plantForm {
 		Container:     "pot",
 		FExposure:     "1.0",
 		FRain:         "0.0",
-		PotDiameterMM: "180",
+		PotDiameterCM: "18",
 		Errors:        map[string]string{},
 	}
 }
@@ -54,14 +54,14 @@ func formFromPlant(p domain.Plant) plantForm {
 		Location:      string(p.Location),
 		Place:         p.Place,
 		Container:     "pot",
-		PotDiameterMM: strconv.Itoa(p.PotDiameterMM),
+		PotDiameterCM: strconv.Itoa(p.PotDiameterCM),
 		FExposure:     fmt.Sprintf("%.1f", p.FExposure),
 		FRain:         fmt.Sprintf("%.1f", p.FRain),
 		Errors:        map[string]string{},
 	}
 	if p.InGround {
 		f.Container = "ground"
-		f.PotDiameterMM = ""
+		f.PotDiameterCM = ""
 	}
 	if p.TadoRoomID != nil {
 		f.TadoRoomID = *p.TadoRoomID
@@ -96,7 +96,7 @@ func parsePlantForm(r *http.Request) plantForm {
 		Place:         strings.TrimSpace(r.FormValue("place")),
 		TadoRoomID:    strings.TrimSpace(r.FormValue("tado_room_id")),
 		Container:     strings.TrimSpace(r.FormValue("container")),
-		PotDiameterMM: strings.TrimSpace(r.FormValue("pot_diameter_mm")),
+		PotDiameterCM: strings.TrimSpace(r.FormValue("pot_diameter_cm")),
 		FExposure:     strings.TrimSpace(r.FormValue("f_exposure")),
 		FRain:         strings.TrimSpace(r.FormValue("f_rain")),
 		Kc:            strings.TrimSpace(r.FormValue("kc_override")),
@@ -162,13 +162,13 @@ func (f *plantForm) apply(p *domain.Plant) {
 			break
 		}
 		p.InGround = true
-		p.PotDiameterMM = 0
+		p.PotDiameterCM = 0
 	case "pot":
-		n, err := strconv.Atoi(f.PotDiameterMM)
-		if err != nil || n < 40 || n > 2000 {
-			f.Errors["pot_diameter_mm"] = "Pot diameter must be 40–2000 mm"
+		n, err := strconv.Atoi(f.PotDiameterCM)
+		if err != nil || n < 4 || n > 200 {
+			f.Errors["pot_diameter_cm"] = "Pot diameter must be 4–200 cm"
 		} else {
-			p.PotDiameterMM = n
+			p.PotDiameterCM = n
 			p.InGround = false
 		}
 	default:

@@ -11,7 +11,7 @@ func TestEffectiveFallsBackToSpecies(t *testing.T) {
 		Location:      domain.Indoor,
 		FExposure:     1.0,
 		FRain:         0.0,
-		PotDiameterMM: 180,
+		PotDiameterCM: 18,
 	}
 	s := domain.Species{
 		Kc:               0.7,
@@ -31,7 +31,7 @@ func TestEffectiveFallsBackToSpecies(t *testing.T) {
 		t.Fatalf("interval values not used: %+v", got)
 	}
 	if got.Location != domain.Indoor || got.PotDiameterMM != 180 {
-		t.Fatalf("plant placement not used: %+v", got)
+		t.Fatalf("plant placement not used, or cm->mm conversion wrong: %+v", got)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestEffectiveOverrideWins(t *testing.T) {
 		Location:      domain.Outdoor,
 		FExposure:     1.3,
 		FRain:         0.9,
-		PotDiameterMM: 200,
+		PotDiameterCM: 20,
 		Overrides: domain.Overrides{
 			Kc:               &kc,
 			MAD:              &mad,

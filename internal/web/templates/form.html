@@ -53,9 +53,9 @@
     {{with fieldErr .Form.Errors "container"}}<span class="error">{{.}}</span>{{end}}
   </fieldset>
 
-  <label class="pot-diameter" for="pot_diameter_mm">Pot diameter (mm)
-    <input id="pot_diameter_mm" name="pot_diameter_mm" type="number" min="40" max="2000" value="{{.Form.PotDiameterMM}}">
-    {{with fieldErr .Form.Errors "pot_diameter_mm"}}<span class="error">{{.}}</span>{{end}}
+  <label class="pot-diameter" for="pot_diameter_cm">Pot diameter (cm)
+    <input id="pot_diameter_cm" name="pot_diameter_cm" type="number" min="4" max="200" value="{{.Form.PotDiameterCM}}">
+    {{with fieldErr .Form.Errors "pot_diameter_cm"}}<span class="error">{{.}}</span>{{end}}
   </label>
 
   <fieldset>
