@@ -1,0 +1,22 @@
+{{define "title"}}Add a species · Plantation{{end}}
+{{define "content"}}
+<h1>Add a species</h1>
+<p>Describe the plant and Claude will draft its record — how thirsty it is, when it rests, what care it needs. Nothing is saved until you have reviewed it. Whether it lives indoors or out is set on each plant, so one species serves both.</p>
+{{if .Error}}<p class="warn" role="alert">{{.Error}}</p>{{end}}
+<form class="plant-form" method="post" action="/species/draft">
+  <label for="name">What is it called?
+    <input id="name" name="name" type="text" required maxlength="120" value="{{.Name}}" placeholder="monstera, or Ficus lyrata" autocomplete="off">
+  </label>
+
+  <label for="label_text">Anything printed on the label <span class="meta">(optional)</span>
+    <input id="label_text" name="label_text" type="text" maxlength="500" value="{{.LabelText}}" placeholder="cultivar, nursery name, care symbols" autocomplete="off">
+  </label>
+
+  <label for="notes">Anything else <span class="meta">(optional)</span>
+    <textarea id="notes" name="notes" rows="3" maxlength="1000" placeholder="leaves, size, where you got it"></textarea>
+  </label>
+
+  <button type="submit">Draft with Claude</button>
+</form>
+<p class="meta">Prefer to enter everything yourself? <a href="/species/new?manual=1">Fill it in by hand</a>.</p>
+{{end}}

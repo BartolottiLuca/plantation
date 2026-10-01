@@ -1,10 +1,9 @@
-// Package catalog loads, validates and upserts the species catalog.
+// Package catalog holds the rules for what a valid species is: value ranges,
+// the closed task vocabulary, and the water-balance consistency check that
+// keeps base_interval_days honest.
 //
-// The YAML lives in catalog/species and is embedded there (not here): the Go
-// embed directive only accepts paths at or below the directory of the file
-// that carries it, and never "..", so internal/catalog cannot reach
-// catalog/species directly. catalog/species/embed.go declares the embed.FS
-// next to the YAML; this package imports that FS and owns everything about
-// turning it into validated domain.Species and reconciling it with the
-// database.
+// It does not load or store species — the species table is the only source of
+// truth, and internal/store owns reading and writing it. Anything that accepts
+// a species from outside the code (a form, a model) passes it through Validate
+// before it is stored.
 package catalog

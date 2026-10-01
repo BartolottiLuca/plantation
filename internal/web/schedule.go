@@ -432,8 +432,8 @@ func (s *Server) taskControlViews(ctx context.Context, p domain.Plant, sp domain
 	entries := make([]entry, 0, len(sp.Tasks)+1)
 	entries = append(entries, entry{slug: domain.WaterSlug, label: "Water"})
 	for _, t := range sp.Tasks {
-		if t.Kind == domain.Repot && p.InGround {
-			continue // SPEC §7.1: an in-ground plant is never repotted.
+		if !care.TaskApplies(t, p.Location, p.InGround) {
+			continue
 		}
 		entries = append(entries, entry{slug: t.Slug, label: t.Label, catalogDays: t.IntervalDays})
 	}

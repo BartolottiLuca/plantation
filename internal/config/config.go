@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ type Config struct {
 	TadoEnabled    bool
 	DiscordWebhook string
 	WriteToken     string
+	// AnthropicAPIKey enables species drafting; empty leaves it disabled. Never logged.
+	AnthropicAPIKey string
+	// AnthropicModel overrides the drafter's default model; empty means the default.
+	AnthropicModel string
 	LogLevel       slog.Level
 }
 
@@ -65,6 +70,12 @@ func Load() (Config, error) {
 
 	cfg.WriteToken = strings.TrimSpace(os.Getenv("PLANTATION_WRITE_TOKEN"))
 	cfg.DiscordWebhook = strings.TrimSpace(os.Getenv("PLANTATION_DISCORD_WEBHOOK_URL"))
+	cfg.AnthropicAPIKey = strings.TrimSpace(os.Getenv("PLANTATION_ANTHROPIC_API_KEY"))
+
+	cfg.AnthropicModel = strings.TrimSpace(os.Getenv("PLANTATION_ANTHROPIC_MODEL"))
+	if cfg.AnthropicModel != "" && !modelID.MatchString(cfg.AnthropicModel) {
+		return Config{}, fmt.Errorf("PLANTATION_ANTHROPIC_MODEL %q is not a model id", cfg.AnthropicModel)
+	}
 
 	cfg.TadoEnabled, err = envBool("PLANTATION_TADO_ENABLED", true)
 	if err != nil {
@@ -109,6 +120,11 @@ func Load() (Config, error) {
 
 	return cfg, nil
 }
+
+// modelID accepts the id shapes the API and its cloud partners use (letters,
+// digits, dots, hyphens, colons, slashes), and refuses whitespace and quotes, which
+// only ever mean a mangled value in a manifest.
+var modelID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
 func require(key string) (string, error) {
 	v := strings.TrimSpace(os.Getenv(key))

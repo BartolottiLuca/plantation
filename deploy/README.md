@@ -22,6 +22,7 @@ placeholders.
 | Latitude / longitude | `config.latitude` / `config.longitude` | Required only if `config.weatherEnabled: true` (the default); the chart refuses to render otherwise |
 | Discord webhook URL | `discord.existingSecretName` / `discord.existingSecretKey` | Name/key of a Secret you create yourself, e.g. `kubectl create secret generic plantation-discord --from-literal=webhookUrl=...`; empty name disables Discord |
 | Write token (optional) | `writeToken.existingSecretName` / `writeToken.existingSecretKey` | Same pattern; optional bearer token required on POST routes |
+| Claude API key (optional) | `anthropic.existingSecretName` / `anthropic.existingSecretKey` | Enables drafting new species with Claude. Name/key of a Secret — in practice the one a SealedSecret in your cluster overlay unseals to (`kubeseal` a Secret holding `apiKey`); empty name disables drafting and the species screens fall back to the manual form. `anthropic.model` optionally overrides the model |
 | ArgoCD git repo URL | `argocd/application.yaml` → `spec.source.repoURL` | Never committed; fill in on the cluster's copy of this manifest |
 | External database DSN (only if `postgresql.enabled: false`) | `externalDatabase.existingSecretName` / `externalDatabase.existingSecretKey` | Secret must contain a full `PLANTATION_DATABASE_URL`-compatible DSN |
 
@@ -117,10 +118,11 @@ pg_restore --clean --if-exists -h plantation-rw -U plantation -d plantation \
 kubectl -n plantation scale deploy/plantation --replicas=1
 ```
 
-Two things worth knowing before you need them. Care events are the only irreplaceable
-data — `weather_daily`, `room_climate_samples` and `notifications` are caches the app
-refills on its own, and `species` is rebuilt from the YAML catalog at every boot, so a
-partial restore that loses those is survivable. And this procedure has not been exercised
+Two things worth knowing before you need them. Care events and species are the data with
+no other copy. `weather_daily`, `room_climate_samples` and `notifications` are caches the
+app refills on its own, but `species` is no longer rebuilt from anywhere: every species
+lives only in the database and its backups. Do not restore a subset of tables that leaves `species` behind.
+And this procedure has not been exercised
 on this cluster; the first run is the test, so do it deliberately rather than during an
 incident.
 

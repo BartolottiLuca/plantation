@@ -174,3 +174,53 @@ func TestLoadResolvesLocationOnce(t *testing.T) {
 		t.Fatalf("resolved location = %s", got)
 	}
 }
+
+func TestLoadAnthropicIsOptional(t *testing.T) {
+	setRequired(t)
+	t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "")
+	t.Setenv("PLANTATION_ANTHROPIC_MODEL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("a boot without a key must work: %v", err)
+	}
+	if cfg.AnthropicAPIKey != "" || cfg.AnthropicModel != "" {
+		t.Fatalf("got key/model %q/%q, want both empty", cfg.AnthropicAPIKey, cfg.AnthropicModel)
+	}
+}
+
+func TestLoadAnthropicKeyAndModel(t *testing.T) {
+	setRequired(t)
+	t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "  sk-ant-test-key\n")
+	t.Setenv("PLANTATION_ANTHROPIC_MODEL", "claude-sonnet-5")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.AnthropicAPIKey != "sk-ant-test-key" {
+		t.Fatalf("key = %q, want it trimmed (a sealed secret often ends in a newline)", cfg.AnthropicAPIKey)
+	}
+	if cfg.AnthropicModel != "claude-sonnet-5" {
+		t.Fatalf("model = %q", cfg.AnthropicModel)
+	}
+}
+
+func TestLoadRejectsAMangledModelWithoutEchoingTheKey(t *testing.T) {
+	for _, bad := range []string{"claude opus 5", `"claude-opus-5"`, "-claude", "claude;rm"} {
+		setRequired(t)
+		t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "sk-ant-must-not-leak")
+		t.Setenv("PLANTATION_ANTHROPIC_MODEL", bad)
+
+		_, err := Load()
+		if err == nil {
+			t.Fatalf("model %q accepted", bad)
+		}
+		if !strings.Contains(err.Error(), "PLANTATION_ANTHROPIC_MODEL") {
+			t.Errorf("model %q: error %q does not name the variable", bad, err)
+		}
+		if strings.Contains(err.Error(), "sk-ant") {
+			t.Errorf("error leaks the API key: %q", err)
+		}
+	}
+}

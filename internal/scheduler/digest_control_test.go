@@ -152,8 +152,7 @@ func TestDigestUsesTaskLabelsNotKindNames(t *testing.T) {
 	loc := london(t)
 	id := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
 	sp := domain.Species{
-		Slug: "lavandula-angustifolia", CommonName: "Lavender", Placement: domain.Outdoor,
-		Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7,
+		Slug: "lavandula-angustifolia", CommonName: "Lavender", Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7,
 		BaseIntervalDays: 8, MinIntervalDays: 4, MaxIntervalDays: 21,
 		Tasks: []domain.SpeciesTask{
 			{Slug: "spring-tidy", Kind: domain.Prune, Label: "Tidy after winter", IntervalDays: 3},

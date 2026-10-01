@@ -137,7 +137,6 @@ func mustSpecies(t *testing.T, repo *SpeciesRepo, slug string) {
 		Slug:             slug,
 		CommonName:       "Test " + slug,
 		ScientificName:   slug,
-		Placement:        domain.Indoor,
 		Kc:               0.7,
 		Substrate:        domain.Peat,
 		MAD:              0.5,
@@ -147,7 +146,7 @@ func mustSpecies(t *testing.T, repo *SpeciesRepo, slug string) {
 		DormancyFactor:   1,
 		MinTempC:         8,
 	}
-	if err := repo.UpsertAll(context.Background(), []domain.Species{s}); err != nil {
-		t.Fatalf("UpsertAll: %v", err)
+	if err := repo.Create(context.Background(), s); err != nil {
+		t.Fatalf("Create species: %v", err)
 	}
 }

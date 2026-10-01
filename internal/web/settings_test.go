@@ -26,7 +26,6 @@ const (
 func testSettings(t *testing.T, extra func(*Server)) (*Server, *http.ServeMux) {
 	t.Helper()
 	s, _, mux := testUI(t, func(_ *memDB, s *Server) {
-		s.CatalogReady = true
 		if extra != nil {
 			extra(s)
 		}
@@ -304,7 +303,7 @@ func TestSettingsDiagnosticsWeatherDisabled(t *testing.T) {
 	_, mux := testSettings(t, nil)
 	rec := doGET(t, mux, "/settings/diagnostics")
 	assertStatus(t, rec, http.StatusOK)
-	assertContains(t, rec, "Weather is disabled", "Tado is disabled", "Scheduler is not running", "succeeded")
+	assertContains(t, rec, "Weather is disabled", "Tado is disabled", "Scheduler is not running", "Species")
 	assertNoSecrets(t, rec)
 }
 
@@ -382,13 +381,12 @@ func TestSettingsWriteTokenOnPOST(t *testing.T) {
 	db := newMem(clock)
 	db.addSpecies(fixtureSpecies())
 	s := NewServer(Server{
-		Plants:       db,
-		Species:      memSpecies{db},
-		Events:       db,
-		Clock:        clock,
-		Location:     time.UTC,
-		WriteToken:   "secret",
-		CatalogReady: true,
+		Plants:     db,
+		Species:    memSpecies{db},
+		Events:     db,
+		Clock:      clock,
+		Location:   time.UTC,
+		WriteToken: "secret",
 		Tado: &fakeTado{
 			waitFn: func(ctx context.Context, _ tado.DeviceCode) error {
 				<-ctx.Done()

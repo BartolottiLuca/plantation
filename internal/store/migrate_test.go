@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BartolottiLuca/plantation/internal/domain"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -329,4 +330,93 @@ func applyMigrationsThrough(t *testing.T, pool *pgxpool.Pool, lastFile string) {
 		}
 	}
 	t.Fatalf("migration file %q not found", lastFile)
+}
+
+// Nothing is seeded any more: species are added in the app.
+func TestFreshDatabaseStartsWithAnEmptyCatalog(t *testing.T) {
+	pool := openFreshDB(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	list, err := NewSpeciesRepo(pool).List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("fresh database has %d species, want none", len(list))
+	}
+}
+
+// A production database has been booting the catalog from YAML, so by the time
+// 0005 runs its species already exist and plants reference them. The migration
+// must keep every one of them, their tasks, the plants and the care history —
+// care_events is the one table that cannot be rebuilt — while dropping
+// species.placement and leaving each plant's own location alone.
+func TestSpeciesMigrationOverALiveCatalogKeepsEverything(t *testing.T) {
+	pool := openFreshDB(t)
+	ctx := context.Background()
+	applyMigrationsThrough(t, pool, "0004_species_tasks.sql")
+
+	// Pre-0005 shape, as the YAML boot upsert wrote it.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO species (slug, common_name, scientific_name, placement, kc, substrate, mad,
+			base_interval_days, min_interval_days, max_interval_days, dormant_months, dormancy_factor,
+			min_temp_c, frost_tender, description, care_advice)
+		VALUES ('lavandula-angustifolia', 'English lavender', 'Lavandula angustifolia', 'outdoor', 0.4, 'cactus', 0.7,
+			8, 4, 21, '{}', 1.0, -15, false, 'A Mediterranean sub-shrub.', 'Poor soil, full sun.');
+		INSERT INTO species_tasks (species_slug, slug, kind, label, interval_days, active_months, sort_order)
+		VALUES ('lavandula-angustifolia', 'spring-tidy', 'prune', 'Tidy after winter', 365, '{3}', 0),
+			('lavandula-angustifolia', 'prune-after-flowering', 'prune', 'Cut back after flowering', 365, '{8}', 1)`); err != nil {
+		t.Fatalf("inserting live-shaped catalog: %v", err)
+	}
+	var plantID string
+	if err := pool.QueryRow(ctx, `INSERT INTO plants (name, species_slug, location, pot_diameter_cm)
+		VALUES ('Windowsill lavender', 'lavandula-angustifolia', 'indoor', 18) RETURNING id`).Scan(&plantID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO care_events (plant_id, kind, task_slug, done_at, source)
+		VALUES ($1, 'prune', 'spring-tidy', now(), 'web')`, plantID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatalf("Migrate over a live-shaped database: %v", err)
+	}
+
+	lav, err := NewSpeciesRepo(pool).Get(ctx, "lavandula-angustifolia")
+	if err != nil {
+		t.Fatalf("existing species lost: %v", err)
+	}
+	if lav.Kc != 0.4 || lav.CommonName != "English lavender" || lav.Description != "A Mediterranean sub-shrub." {
+		t.Errorf("existing species changed: %+v", lav)
+	}
+	if lav.Origin != domain.OriginManual || lav.AIModel != "" || lav.AIDraftedAt != nil {
+		t.Errorf("existing species provenance = %q/%q/%v, want manual", lav.Origin, lav.AIModel, lav.AIDraftedAt)
+	}
+	if len(lav.Tasks) != 2 || lav.Tasks[0].Slug != "spring-tidy" || lav.Tasks[0].OnlyIn != "" || lav.Tasks[1].OnlyIn != "" {
+		t.Errorf("existing tasks = %+v, want both kept, in order, applying anywhere", lav.Tasks)
+	}
+
+	var cols, events int
+	var loc string
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'species' AND column_name = 'placement'`).Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	if cols != 0 {
+		t.Error("species.placement still exists")
+	}
+	if err := pool.QueryRow(ctx, `SELECT location FROM plants WHERE id = $1`, plantID).Scan(&loc); err != nil {
+		t.Fatalf("plant lost: %v", err)
+	}
+	if loc != "indoor" {
+		t.Errorf("plant location = %q, want indoor", loc)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM care_events WHERE plant_id = $1`, plantID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Errorf("care_events = %d, want 1", events)
+	}
 }

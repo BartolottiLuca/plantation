@@ -9,7 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
-var ErrNotFound = errors.New("store: not found")
+var (
+	ErrNotFound = errors.New("store: not found")
+	// ErrConflict means a create collided with an existing row's unique key.
+	ErrConflict = errors.New("store: already exists")
+)
 
 const (
 	WeatherObserved = "observed"

@@ -19,11 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/BartolottiLuca/plantation/internal/care"
-	"github.com/BartolottiLuca/plantation/internal/catalog"
 	"github.com/BartolottiLuca/plantation/internal/climate/tado"
 	"github.com/BartolottiLuca/plantation/internal/config"
 	"github.com/BartolottiLuca/plantation/internal/notify"
 	"github.com/BartolottiLuca/plantation/internal/scheduler"
+	"github.com/BartolottiLuca/plantation/internal/species"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/BartolottiLuca/plantation/internal/weather"
 	"github.com/BartolottiLuca/plantation/internal/web"
@@ -140,24 +140,6 @@ func serve() int {
 			return
 		}
 
-		// Species catalog is rebuilt from catalog/species/*.yaml at every
-		// boot (AGENTS.md: "no migration, no manual SQL" for adding a
-		// species) — a bad YAML file must not bring up a stale catalog
-		// silently, so a load or upsert failure is fatal, same as a failed
-		// migration.
-		species, err := catalog.Load()
-		if err != nil {
-			log.Error("loading species catalog", "err", err)
-			pool.Close()
-			return
-		}
-		if err := catalog.Upsert(ctx, store.NewSpeciesRepo(pool), species); err != nil {
-			log.Error("upserting species catalog", "err", err)
-			pool.Close()
-			return
-		}
-		log.Info("species catalog upserted", "count", len(species))
-
 		// Mount UI and start the scheduler before flipping /readyz so a
 		// ready pod already has routes and the tick is running.
 		startRuntime(ctx, mux, pool, cfg, log)
@@ -260,24 +242,32 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 		Log:            log,
 	})
 
+	// Without a key the feature is off, not broken: the species screens fall
+	// back to the manual form.
+	var drafter species.Drafter = species.NoopDrafter{}
+	if cfg.AnthropicAPIKey != "" {
+		drafter = species.NewAnthropicDrafter(cfg.AnthropicAPIKey, cfg.AnthropicModel, clk, log)
+	}
+	log.Info("species drafting", "enabled", cfg.AnthropicAPIKey != "")
+
 	ui := web.NewServer(web.Server{
-		Plants:       plantRepo,
-		Species:      store.NewSpeciesRepo(pool),
-		Events:       eventRepo,
-		Tasks:        taskRepo,
-		Clock:        clk,
-		Location:     cfg.Location,
-		WriteToken:   cfg.WriteToken,
-		Rooms:        roomLister(sampler),
-		Env:          loop.PlantEnv,
-		Tado:         tadoLinker(auth),
-		Notifier:     uiNotify,
-		BaseURL:      cfg.BaseURL,
-		WeatherAge:   webWeatherAge(weatherRepo),
-		Weather:      weatherSeries(weatherSvc),
-		LocationKey:  locationKey,
-		Scheduler:    loop,
-		CatalogReady: true, // startRuntime only runs after a successful upsert
+		Drafter:     drafter,
+		Plants:      plantRepo,
+		Species:     store.NewSpeciesRepo(pool),
+		Events:      eventRepo,
+		Tasks:       taskRepo,
+		Clock:       clk,
+		Location:    cfg.Location,
+		WriteToken:  cfg.WriteToken,
+		Rooms:       roomLister(sampler),
+		Env:         loop.PlantEnv,
+		Tado:        tadoLinker(auth),
+		Notifier:    uiNotify,
+		BaseURL:     cfg.BaseURL,
+		WeatherAge:  webWeatherAge(weatherRepo),
+		Weather:     weatherSeries(weatherSvc),
+		LocationKey: locationKey,
+		Scheduler:   loop,
 	})
 	ui.Register(mux)
 
