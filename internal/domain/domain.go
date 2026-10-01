@@ -71,27 +71,43 @@ const (
 	Coir   SubstrateKind = "coir"
 )
 
+// SpeciesOrigin records who wrote a species record's numbers, so a row a year
+// old can still say whether a person or a model chose its constants.
+type SpeciesOrigin string
+
+const (
+	OriginAI     SpeciesOrigin = "ai"     // drafted by a model, then reviewed and saved by the user
+	OriginManual SpeciesOrigin = "manual" // typed in by the user
+)
+
 type Species struct {
 	Slug             string
 	CommonName       string
 	ScientificName   string
 	Description      string // a paragraph on the plant; CareAdvice stays the short practical note
-	Placement        Location
 	Kc               float64
 	Substrate        SubstrateKind
 	MAD              float64
 	BaseIntervalDays int
 	MinIntervalDays  int
 	MaxIntervalDays  int
-	DormantMonths    []time.Month
-	DormancyFactor   float64
-	MinTempC         float64
-	FrostTender      bool
+	// DormantMonths and DormancyFactor are the species' rest period as it shows
+	// indoors. They apply only to a plant kept indoors: outdoors, winter dormancy
+	// already arrives through low ET0 (SPEC §7.2).
+	DormantMonths  []time.Month
+	DormancyFactor float64
+	MinTempC       float64
+	FrostTender    bool
 	// Tasks is every fixed-interval task this species needs, in display order.
 	// Watering is absent by design: it is computed, not declared.
 	Tasks      []SpeciesTask
 	CareAdvice string
 	Retired    bool
+
+	Origin SpeciesOrigin
+	// AIModel and AIDraftedAt are set only when Origin is OriginAI.
+	AIModel     string
+	AIDraftedAt *time.Time
 }
 
 // SpeciesTask is one declared unit of care. A species may hold several of the
@@ -107,6 +123,9 @@ type SpeciesTask struct {
 	Label        string // what the UI and the digest call it
 	IntervalDays int
 	ActiveMonths []time.Month // empty means all year
+	// OnlyIn restricts the task to plants kept in one place — mulching a bed is
+	// outdoor care. Empty means the task applies wherever the plant is.
+	OnlyIn Location
 }
 
 type Plant struct {

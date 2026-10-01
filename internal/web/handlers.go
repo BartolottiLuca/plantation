@@ -117,7 +117,15 @@ func (s *Server) listPlants(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) newPlantGET(w http.ResponseWriter, r *http.Request) {
-	s.renderForm(w, r, http.StatusOK, "Add a plant", "/plants/new", "Add plant", blankForm(), "")
+	f := blankForm()
+	// Arriving from "add a species": select it. Where this plant lives is asked
+	// here, on the plant, because the species does not decide it.
+	if slug := r.URL.Query().Get("species"); slug != "" {
+		if sp, err := s.Species.Get(r.Context(), slug); err == nil && !sp.Retired {
+			f.SpeciesSlug = sp.Slug
+		}
+	}
+	s.renderForm(w, r, http.StatusOK, "Add a plant", "/plants/new", "Add plant", f, "")
 }
 
 func (s *Server) newPlantPOST(w http.ResponseWriter, r *http.Request) {

@@ -3,7 +3,7 @@ package care
 import "github.com/BartolottiLuca/plantation/internal/domain"
 
 // Effective is the single COALESCE(plant override, species) resolution.
-// A YAML edit of the catalog cannot silently clobber hand-tuning.
+// An edit to a species cannot silently clobber hand-tuning.
 //
 // It is also the single cm→mm conversion point: domain.Plant stores pot
 // diameter the way a person measures it (centimeters), and Params carries it
@@ -18,13 +18,19 @@ func Effective(p domain.Plant, s domain.Species) Params {
 		BaseIntervalDays: s.BaseIntervalDays,
 		MinIntervalDays:  s.MinIntervalDays,
 		MaxIntervalDays:  s.MaxIntervalDays,
-		DormantMonths:    s.DormantMonths,
-		DormancyFactor:   s.DormancyFactor,
+		DormancyFactor:   1,
 		FExposure:        p.FExposure,
 		FRain:            p.FRain,
 		InGround:         p.InGround,
 		PotDiameterMM:    p.PotDiameterCM * 10,
 		AcquiredAt:       p.AcquiredAt,
+	}
+	// The species' rest period is an indoor fact. Outdoors the same slowdown is
+	// already in the weather — a low winter ET0 — and applying it again would
+	// under-water the plant (SPEC §7.2).
+	if p.Location == domain.Indoor {
+		params.DormantMonths = s.DormantMonths
+		params.DormancyFactor = s.DormancyFactor
 	}
 	o := p.Overrides
 	if o.Kc != nil {

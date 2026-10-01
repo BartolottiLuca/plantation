@@ -223,3 +223,55 @@ func TestScheduleAllWaterCarriesSlugAndLabel(t *testing.T) {
 		t.Error("water task has no label")
 	}
 }
+
+func TestTaskApplies(t *testing.T) {
+	anywhere := domain.SpeciesTask{Slug: "feed", Kind: domain.Fertilize}
+	bed := domain.SpeciesTask{Slug: "mulch-bed", Kind: domain.Mulch, OnlyIn: domain.Outdoor}
+	sill := domain.SpeciesTask{Slug: "rotate", Kind: domain.Prune, OnlyIn: domain.Indoor}
+	repot := domain.SpeciesTask{Slug: "repot", Kind: domain.Repot}
+
+	tests := []struct {
+		name     string
+		task     domain.SpeciesTask
+		loc      domain.Location
+		inGround bool
+		want     bool
+	}{
+		{"unrestricted task indoors", anywhere, domain.Indoor, false, true},
+		{"unrestricted task outdoors", anywhere, domain.Outdoor, false, true},
+		{"outdoor-only task outdoors", bed, domain.Outdoor, false, true},
+		{"outdoor-only task indoors", bed, domain.Indoor, false, false},
+		{"indoor-only task indoors", sill, domain.Indoor, false, true},
+		{"indoor-only task outdoors", sill, domain.Outdoor, false, false},
+		{"repot in a pot", repot, domain.Outdoor, false, true},
+		{"repot in the ground", repot, domain.Outdoor, true, false},
+	}
+	for _, tt := range tests {
+		if got := TaskApplies(tt.task, tt.loc, tt.inGround); got != tt.want {
+			t.Errorf("%s: TaskApplies = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestScheduleAllSkipsTasksForTheOtherPlacement(t *testing.T) {
+	today := domain.Date{Year: 2026, Month: time.June, Day: 1}
+	sp := domain.Species{Tasks: []domain.SpeciesTask{
+		{Slug: "feed", Kind: domain.Fertilize, Label: "Feed", IntervalDays: 30},
+		{Slug: "mulch-bed", Kind: domain.Mulch, Label: "Mulch", IntervalDays: 365, OnlyIn: domain.Outdoor},
+	}}
+	slugs := func(loc domain.Location) []string {
+		p := Params{Location: loc, Kc: 0.7, Substrate: domain.Peat, MAD: 0.5, BaseIntervalDays: 7,
+			MinIntervalDays: 1, MaxIntervalDays: 90, FExposure: 1, PotDiameterMM: 180}
+		var out []string
+		for _, st := range ScheduleAll(p, sp, nil, EnvSeries{IndoorDataStale: true}, nil, today) {
+			out = append(out, st.Slug)
+		}
+		return out
+	}
+	if got := slugs(domain.Indoor); len(got) != 2 || got[1] != "feed" {
+		t.Errorf("indoor plant tasks = %v, want water+feed", got)
+	}
+	if got := slugs(domain.Outdoor); len(got) != 3 || got[2] != "mulch-bed" {
+		t.Errorf("outdoor plant tasks = %v, want water+feed+mulch-bed", got)
+	}
+}

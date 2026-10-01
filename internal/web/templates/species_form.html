@@ -1,0 +1,175 @@
+{{define "title"}}{{.Heading}} · Plantation{{end}}
+{{define "content"}}
+<h1>{{.Heading}}</h1>
+
+{{with .Draft}}
+<section class="draft-note" aria-labelledby="draft-heading">
+  <h2 id="draft-heading">Drafted by Claude</h2>
+  <p>These values are a draft from {{.Model}}, not curated data. Check every number before saving — a plausible-looking wrong value here becomes wrong watering dates for the plant.</p>
+  <p>Identified as <strong>{{.IdentifiedAs}}</strong> — confidence <strong>{{.Confidence}}</strong>.</p>
+  {{if .LowConfid}}<p class="warn" role="alert">Claude was not sure which plant this is. Look at the name and the constants closely, or try one of the alternatives.</p>{{end}}
+  {{if .Retried}}<p class="meta">The first draft failed the app's checks and was corrected once.</p>{{end}}
+  {{if .Alternatives}}
+  <p class="meta">It could also be:</p>
+  <ul class="alternatives">
+    {{range .Alternatives}}
+    <li>
+      <form method="post" action="/species/draft">
+        <input type="hidden" name="name" value="{{.}}">
+        <button type="submit" class="link">Draft {{.}} instead</button>
+      </form>
+    </li>
+    {{end}}
+  </ul>
+  {{end}}
+  {{if .Reasoning}}<details><summary>Why these values</summary><p>{{.Reasoning}}</p></details>{{end}}
+</section>
+{{end}}
+
+{{if .Disabled}}<p class="empty">Drafting with Claude is not set up on this server, so this is a blank form.</p>{{end}}
+
+{{with .Collision}}
+<p class="warn" role="alert">There is already a species with this slug: <strong>{{.CommonName}}</strong> ({{.ScientificName}}).
+  <a href="/plants/new?species={{.Slug}}">Use it for a plant</a> · <a href="/species/{{.Slug}}/edit">Edit it</a></p>
+{{end}}
+
+{{if .Form.Notice}}<p class="warn" role="status">{{.Form.Notice}}</p>{{end}}
+{{with fieldErr .Form.Errors ""}}<p class="error" role="alert">{{.}}</p>{{end}}
+
+<form class="plant-form species-form" method="post" action="{{.Action}}">
+  <input type="hidden" name="rendered_from" value="{{.Form.RenderedFrom}}">
+  <input type="hidden" name="rendered_base" value="{{.Form.RenderedBase}}">
+  <input type="hidden" name="rendered_min" value="{{.Form.RenderedMin}}">
+  <input type="hidden" name="rendered_max" value="{{.Form.RenderedMax}}">
+  <input type="hidden" name="origin" value="{{.Form.Origin}}">
+  <input type="hidden" name="ai_model" value="{{.Form.AIModel}}">
+  <input type="hidden" name="ai_drafted_at" value="{{.Form.AIDraftedAt}}">
+
+  <label for="common_name">Common name
+    <input id="common_name" name="common_name" type="text" required maxlength="200" value="{{.Form.CommonName}}" autocomplete="off">
+    {{with fieldErr .Form.Errors "common_name"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <label for="scientific_name">Scientific name
+    <input id="scientific_name" name="scientific_name" type="text" required maxlength="200" value="{{.Form.ScientificName}}" autocomplete="off">
+    {{with fieldErr .Form.Errors "scientific_name"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <label for="slug">Slug
+    <input id="slug" name="slug" type="text" maxlength="200" value="{{.Form.Slug}}" {{if .Edit}}readonly{{end}} placeholder="derived from the scientific name" autocomplete="off">
+    <span class="meta">{{if .Edit}}The slug is this species' permanent identity and cannot change.{{else}}Permanent once saved. Leave blank to derive it from the scientific name.{{end}}</span>
+    {{with fieldErr .Form.Errors "slug"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <fieldset>
+    <legend>Water</legend>
+    <label for="kc">Kc <span class="meta">crop coefficient, 0.1–1.5: succulent ≈ 0.25, foliage ≈ 0.7, thirsty ≈ 1.1</span>
+      <input id="kc" name="kc" type="text" inputmode="decimal" required value="{{.Form.Kc}}">
+      {{with fieldErr .Form.Errors "kc"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="mad">MAD <span class="meta">how dry it may get before watering, 0.2–0.9: default 0.5, succulent 0.8, fern 0.3</span>
+      <input id="mad" name="mad" type="text" inputmode="decimal" required value="{{.Form.MAD}}">
+      {{with fieldErr .Form.Errors "mad"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="substrate">Substrate
+      <select id="substrate" name="substrate">
+        {{range $.Substrates}}<option value="{{.}}" {{selected $.Form.Substrate (printf "%s" .)}}>{{.}}</option>{{end}}
+      </select>
+      {{with fieldErr .Form.Errors "substrate"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Intervals</legend>
+    <p class="meta">Derived from kc, mad and substrate. If you change those and leave these alone, they are recomputed and shown to you before saving.</p>
+    <label for="base_interval_days">Base (days)
+      <input id="base_interval_days" name="base_interval_days" type="number" min="1" value="{{.Form.BaseInterval}}">
+      {{with fieldErr .Form.Errors "base_interval_days"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="min_interval_days">Never sooner than (days)
+      <input id="min_interval_days" name="min_interval_days" type="number" min="1" value="{{.Form.MinInterval}}">
+      {{with fieldErr .Form.Errors "min_interval_days"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="max_interval_days">Never later than (days)
+      <input id="max_interval_days" name="max_interval_days" type="number" min="1" value="{{.Form.MaxInterval}}">
+      {{with fieldErr .Form.Errors "max_interval_days"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Rest and cold</legend>
+    <p class="meta">The rest period applies only to plants kept indoors — outdoors the weather already slows watering in winter. Frost alerts apply only to plants kept outdoors.</p>
+    <label for="dormant_months">Dormant months <span class="meta">{{.Form.DormantMonthsHint}}</span>
+      <input id="dormant_months" name="dormant_months" type="text" value="{{.Form.DormantMonths}}" placeholder="11, 12, 1, 2">
+      {{with fieldErr .Form.Errors "dormant_months"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="dormancy_factor">Dormancy factor <span class="meta">water-use multiplier while dormant, 0.2–1; 1 means none</span>
+      <input id="dormancy_factor" name="dormancy_factor" type="text" inputmode="decimal" required value="{{.Form.DormancyFactor}}">
+      {{with fieldErr .Form.Errors "dormancy_factor"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label for="min_temp_c">Minimum temperature (°C) <span class="meta">below this it needs protection</span>
+      <input id="min_temp_c" name="min_temp_c" type="text" inputmode="decimal" required value="{{.Form.MinTempC}}">
+      {{with fieldErr .Form.Errors "min_temp_c"}}<span class="error">{{.}}</span>{{end}}
+    </label>
+    <label class="choice"><input type="checkbox" name="frost_tender" value="1" {{if .Form.FrostTender}}checked{{end}}> Frost tender</label>
+  </fieldset>
+
+  <label for="description">Description
+    <textarea id="description" name="description" rows="4" maxlength="4000">{{.Form.Description}}</textarea>
+    {{with fieldErr .Form.Errors "description"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <label for="care_advice">Care advice
+    <textarea id="care_advice" name="care_advice" rows="3" maxlength="4000">{{.Form.CareAdvice}}</textarea>
+    {{with fieldErr .Form.Errors "care_advice"}}<span class="error">{{.}}</span>{{end}}
+  </label>
+
+  <fieldset>
+    <legend>Care tasks</legend>
+    <p class="meta">Fixed-interval jobs, in the order they are listed. Watering is worked out from the numbers above, so it is not a task. Leave a row empty to skip it.{{if .Edit}} A task's slug is permanent; to drop a task, tick Remove.{{end}}</p>
+    {{range $i, $t := .Form.Tasks}}
+    <div class="task-row">
+      {{if $t.Existing}}<input type="hidden" name="tasks[{{$i}}].existing" value="1">{{end}}
+      <label for="task-{{$i}}-slug">Slug
+        <input id="task-{{$i}}-slug" name="tasks[{{$i}}].slug" type="text" value="{{$t.Slug}}" {{if $t.Existing}}readonly{{end}} placeholder="pinch-flowers" autocomplete="off">
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].slug" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      <label for="task-{{$i}}-kind">Kind
+        <select id="task-{{$i}}-kind" name="tasks[{{$i}}].kind">
+          <option value="">Choose</option>
+          {{range $.Kinds}}<option value="{{.}}" {{selected $t.Kind (printf "%s" .)}}>{{.}}</option>{{end}}
+        </select>
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].kind" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      <label for="task-{{$i}}-label">Label <span class="meta">what the reminder says</span>
+        <input id="task-{{$i}}-label" name="tasks[{{$i}}].label" type="text" maxlength="200" value="{{$t.Label}}" placeholder="Pinch flower spikes" autocomplete="off">
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].label" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      <label for="task-{{$i}}-interval">Every (days)
+        <input id="task-{{$i}}-interval" name="tasks[{{$i}}].interval_days" type="number" min="1" max="3650" value="{{$t.IntervalDays}}">
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].interval_days" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      <label for="task-{{$i}}-months">Active months <span class="meta">empty means all year</span>
+        <input id="task-{{$i}}-months" name="tasks[{{$i}}].active_months" type="text" value="{{$t.ActiveMonths}}" placeholder="3, 4, 5, 6">
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].active_months" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      <label for="task-{{$i}}-only-in">For plants kept
+        <select id="task-{{$i}}-only-in" name="tasks[{{$i}}].only_in">
+          <option value="" {{selected $t.OnlyIn ""}}>anywhere</option>
+          <option value="indoor" {{selected $t.OnlyIn "indoor"}}>indoors only</option>
+          <option value="outdoor" {{selected $t.OnlyIn "outdoor"}}>outdoors only</option>
+        </select>
+        {{with fieldErr $.Form.Errors (printf "tasks[%d].only_in" $i)}}<span class="error">{{.}}</span>{{end}}
+      </label>
+      {{if $t.Existing}}<label class="choice"><input type="checkbox" name="tasks[{{$i}}].remove" value="1" {{if $t.Remove}}checked{{end}}> Remove this task</label>{{end}}
+    </div>
+    {{end}}
+  </fieldset>
+
+  {{if .Edit}}
+  <label class="choice"><input type="checkbox" name="retired" value="1" {{if .Form.Retired}}checked{{end}}> Retired <span class="meta">hides it from the picker; plants already using it keep working</span></label>
+  {{end}}
+
+  <button type="submit">{{.Submit}}</button>
+</form>
+{{end}}

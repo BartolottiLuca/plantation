@@ -43,8 +43,7 @@ func ScheduleAll(p Params, s domain.Species, events []domain.CareEvent, env EnvS
 	}
 
 	for _, task := range s.Tasks {
-		// SPEC §7.1: an in-ground plant is never repotted.
-		if task.Kind == domain.Repot && p.InGround {
+		if !TaskApplies(task, p.Location, p.InGround) {
 			continue
 		}
 		if !TaskActive(controls, task.Slug, today) {
@@ -57,6 +56,17 @@ func ScheduleAll(p Params, s domain.Species, events []domain.CareEvent, env EnvS
 		out = append(out, ScheduledTask{Slug: task.Slug, Kind: task.Kind, Label: task.Label, Due: due, Expl: expl})
 	}
 	return out
+}
+
+// TaskApplies reports whether a species task belongs on a plant at all, given
+// where the plant is. It is the one place that decides, so the schedule and the
+// per-plant controls can never offer different task lists.
+func TaskApplies(task domain.SpeciesTask, loc domain.Location, inGround bool) bool {
+	// SPEC §7.1: an in-ground plant is never repotted.
+	if task.Kind == domain.Repot && inGround {
+		return false
+	}
+	return task.OnlyIn == "" || task.OnlyIn == loc
 }
 
 // TaskActive reports whether a task runs today. `snoozed_until` is the day the

@@ -103,7 +103,7 @@ func (r *PlantRepo) List(ctx context.Context) ([]PlantWithSpecies, error) {
 	err := Retry(ctx, func(ctx context.Context) error {
 		rows, err := r.pool.Query(ctx, `
 			SELECT `+plantColumnsPrefixed("p")+`,
-				s.slug, s.common_name, s.scientific_name, s.description, s.placement, s.kc, s.substrate, s.mad,
+				s.slug, s.common_name, s.scientific_name, s.description, s.kc, s.substrate, s.mad,
 				s.base_interval_days, s.min_interval_days, s.max_interval_days,
 				s.dormant_months, s.dormancy_factor, s.min_temp_c, s.frost_tender,
 				s.care_advice, s.retired
@@ -226,7 +226,6 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 		substrate  *string
 		pot        sql.NullInt32
 		s          domain.Species
-		sPlacement string
 		sSubstrate string
 		dormant    []int32
 	)
@@ -235,7 +234,7 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 		&p.FExposure, &p.FRain, &p.AcquiredAt, &p.Active, &p.Notes,
 		&p.Overrides.Kc, &p.Overrides.MAD, &substrate,
 		&p.Overrides.BaseIntervalDays, &p.Overrides.MinIntervalDays, &p.Overrides.MaxIntervalDays,
-		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &sPlacement, &s.Kc, &sSubstrate, &s.MAD,
+		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &s.Kc, &sSubstrate, &s.MAD,
 		&s.BaseIntervalDays, &s.MinIntervalDays, &s.MaxIntervalDays,
 		&dormant, &s.DormancyFactor, &s.MinTempC, &s.FrostTender,
 		&s.CareAdvice, &s.Retired,
@@ -249,7 +248,6 @@ func scanPlantWithSpecies(row speciesScanner) (PlantWithSpecies, error) {
 		sk := domain.SubstrateKind(*substrate)
 		p.Overrides.Substrate = &sk
 	}
-	s.Placement = domain.Location(sPlacement)
 	s.Substrate = domain.SubstrateKind(sSubstrate)
 	s.DormantMonths = intsToMonths(dormant)
 	// s.Tasks is attached by the caller (PlantRepo.List, or GetWithSpecies if

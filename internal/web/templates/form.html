@@ -15,6 +15,7 @@
       {{end}}
     </select>
     {{with fieldErr .Form.Errors "species_slug"}}<span class="error">{{.}}</span>{{end}}
+    <span class="meta">Not in the list? <a href="/species/new">Add a species</a>.</span>
   </label>
 
   <fieldset>

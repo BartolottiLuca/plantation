@@ -19,6 +19,8 @@ watering is driven by room temperature and humidity from a Tado X thermostat.
 - Multiple users, accounts, or roles.
 - More than one replica.
 - Plant photos.
+- AI anywhere but species drafting (§16). No care advice on demand, no diagnosis, no
+  model in the digest.
 - Interactive Discord buttons (plain incoming webhooks cannot carry components; acting on
   a reminder means following a link back to the UI).
 - A mobile app. The web UI must simply work at phone width.
@@ -33,13 +35,14 @@ cmd/plantation/main.go        wiring, subcommands, graceful shutdown
 internal/config               env → typed Config, validated at boot
 internal/domain               Plant, Species, CareEvent, TaskKind, Location, Date
 internal/care                 the scheduling engine — pure, stdlib only
+internal/catalog              what a valid species is: ranges, task vocabulary, physics check
 internal/store                pgxpool, embedded migrations, repositories
 internal/weather              WeatherProvider + openmeteo client + cache repo
 internal/climate              IndoorClimateProvider + tado auth and rooms
 internal/notify               Notifier + discord client + outbox
+internal/species              Drafter + Claude client: drafts a species record (§16)
 internal/web                  handlers, templates, embedded static assets
 internal/scheduler            the single ticker loop
-catalog/species/*.yaml        curated species data, embedded
 deploy/chart                  Helm chart
 deploy/argocd                 ArgoCD Application
 ```
@@ -56,6 +59,9 @@ when a task is due.
   there; importing it does not give the engine a clock or a database.
 - `internal/domain` may import only the standard library and `github.com/google/uuid`.
 - `internal/store` must not import `web`, `scheduler`, or any provider package.
+- `internal/catalog` may import only `internal/care`, `internal/domain` and the standard
+  library. `internal/species` may import those plus `internal/catalog`; it must not import
+  `store` or `web`.
 - Providers (`weather`, `climate`, `notify`) must not import each other.
 - Only `cmd/plantation` may construct concrete implementations. Everything else takes
   interfaces.
@@ -101,20 +107,22 @@ type Species struct {
     CommonName       string
     ScientificName   string
     Description      string          // a paragraph on the plant
-    Placement        Location        // the usual place; a plant may override
     Kc               float64         // crop coefficient
     Substrate        SubstrateKind   // determines ThetaAW
     MAD              float64         // management allowed depletion, 0..1
     BaseIntervalDays int             // fallback when there is no environment data
     MinIntervalDays  int
     MaxIntervalDays  int
-    DormantMonths    []time.Month
+    DormantMonths    []time.Month    // the rest period as it shows indoors; §7.2
     DormancyFactor   float64         // applied during DormantMonths, default 1.0
     MinTempC         float64         // below this it needs protection
     FrostTender      bool
     Tasks            []SpeciesTask   // every fixed-interval task, in display order
     CareAdvice       string
     Retired          bool
+    Origin           SpeciesOrigin   // "ai" | "manual": who wrote these numbers
+    AIModel          string          // set only when Origin is "ai"
+    AIDraftedAt      *time.Time      // set only when Origin is "ai"
 }
 
 // SpeciesTask is one declared unit of care. A species may hold several of the
@@ -124,12 +132,18 @@ type Species struct {
 // Slug is a permanent identity within the species, exactly as the species slug
 // is: renaming it orphans every care event referencing it. Unique per species,
 // not globally, so two species may both have `feed`.
+//
+// A species describes the species, never one plant: where a plant lives is
+// Plant.Location, and one species serves a plant indoors and another outdoors.
+// Everything that depends on placement — dormancy (§7.2), which tasks apply
+// (§7.7), frost alerts (§9) — is resolved against the plant's location.
 type SpeciesTask struct {
     Slug         string
     Kind         TaskKind
     Label        string              // what the UI and the digest call it
     IntervalDays int
     ActiveMonths []time.Month        // empty means all year
+    OnlyIn       Location            // "" = wherever the plant is; else indoor or outdoor only
 }
 
 type Plant struct {
@@ -176,8 +190,8 @@ type Overrides struct {
 ```
 
 The effective value is always `COALESCE(plant override, species value)` — resolved in
-one helper, `care.Effective(p domain.Plant, s domain.Species) Params`, so a YAML edit
-can never silently clobber hand-tuning. It lives in `care` (not `domain`) because it
+one helper, `care.Effective(p domain.Plant, s domain.Species) Params`, so an edit to a
+species can never silently clobber hand-tuning. It lives in `care` (not `domain`) because it
 returns `care.Params`; putting it in `domain` would cycle the two packages.
 
 ## 4. Interfaces
@@ -268,7 +282,7 @@ CREATE TABLE species (
   slug                text PRIMARY KEY,
   common_name         text NOT NULL,
   scientific_name     text NOT NULL DEFAULT '',
-  placement           text NOT NULL CHECK (placement IN ('indoor','outdoor')),
+  description         text NOT NULL DEFAULT '',
   kc                  double precision NOT NULL,
   substrate           text NOT NULL CHECK (substrate IN ('peat','cactus','coir')),
   mad                 double precision NOT NULL,
@@ -279,14 +293,24 @@ CREATE TABLE species (
   dormancy_factor     double precision NOT NULL DEFAULT 1.0,
   min_temp_c          double precision NOT NULL,
   frost_tender        boolean NOT NULL DEFAULT false,
-  prune_interval_days int,
-  prune_months        int[] NOT NULL DEFAULT '{}',
-  fert_interval_days  int,
-  fert_months         int[] NOT NULL DEFAULT '{}',
-  repot_interval_days int,
   care_advice         text NOT NULL DEFAULT '',
   retired             boolean NOT NULL DEFAULT false,
+  origin              text NOT NULL DEFAULT 'manual' CHECK (origin IN ('ai','manual')),
+  ai_model            text,
+  ai_drafted_at       timestamptz,
   updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE species_tasks (
+  species_slug  text NOT NULL REFERENCES species(slug) ON DELETE CASCADE,
+  slug          text NOT NULL,
+  kind          text NOT NULL,
+  label         text NOT NULL,
+  interval_days int  NOT NULL,
+  active_months int[] NOT NULL DEFAULT '{}',
+  sort_order    int  NOT NULL DEFAULT 0,
+  only_in       text CHECK (only_in IN ('indoor','outdoor')),  -- NULL: applies anywhere
+  PRIMARY KEY (species_slug, slug)
 );
 
 CREATE TABLE plants (
@@ -385,9 +409,17 @@ CREATE TABLE notifications (
 
 Rules that the schema alone does not express:
 
-- `species` is a **read-through projection of the YAML catalog**. It is overwritten
-  wholesale at every boot and never written at runtime. A species with plants referencing
-  it is never deleted — set `retired = true`.
+- `species` is **the catalog, and the only copy of it**. Nothing is seeded: a fresh
+  database starts with an empty catalog, and every species is created and edited through
+  the UI. Nothing is loaded at boot and nothing rewrites a row behind a person's back.
+  `origin`, `ai_model` and `ai_drafted_at` record who wrote a row's numbers and are never
+  changed by an edit; rows that predate them are `manual`. A
+  species with plants referencing it is never deleted — set `retired = true`. Because git
+  no longer holds the catalog, the database backup is its only recovery path.
+- Nothing references `species_tasks` by key: care events and per-plant controls carry the
+  task slug as plain text. Replacing a species' task rows on edit therefore cannot orphan
+  or cascade anything; a task's slug is still permanent, and dropping or renaming one
+  leaves its old events matching nothing.
 - `care_tasks` is the per-plant control over one declared task, keyed on **task slug**
   (`domain.WaterSlug` for water, or a `species_tasks.slug` for everything else) — not on
   kind, because a species may declare two tasks of one kind (lavender's spring tidy and
@@ -537,7 +569,9 @@ D      = 300 mm                           (managed root zone)
 f_root = 1.0                              (no perched water table)
 ```
 
-In-ground plants do not get the repot task.
+In-ground plants do not get the repot task. Together with `only_in` (§7.7) this is
+decided in one function, `care.TaskApplies`, which the schedule and the per-plant task
+controls both call.
 
 | `θ_aw` by substrate | value |
 |---|---|
@@ -560,13 +594,17 @@ when `D_d ≥ MAD × C`.
 | `Kc` | species | succulent/cactus 0.25 · typical foliage houseplant 0.7 · thirsty (basil, tomato, hydrangea, calathea) 1.1 |
 | `f_exposure` | plant | 1.0 sheltered · 1.3 full sun or windy balcony |
 | `f_rain` | plant | 0.0 indoor or under eaves · 0.6 partly sheltered · 0.9 fully open |
-| `f_dormancy` | species, only in `dormant_months` | 1.0 default · ~0.5 houseplants |
+| `f_dormancy` | species rest period, **indoor plants only**, in `dormant_months` | 1.0 default · ~0.5 houseplants |
 | `MAD` | species | 0.5 default · 0.8 succulents · 0.3 ferns and moisture-lovers |
 
 `f_exposure` exists because an isolated pot transpires more per unit area than the field
 crop that ET0 is defined against. `f_dormancy` exists because outdoor dormancy arrives
 free through ET0 but indoor dormancy does not — the flat is 21 °C in January, and
-dormant-season overwatering is the main way houseplants die.
+dormant-season overwatering is the main way houseplants die. It follows that the species'
+rest period applies only to a plant whose `location` is indoor: applying it outdoors as well
+would count winter twice and under-water the plant. `care.Effective` is the one place this
+is decided. A species therefore declares its rest period even if it is usually grown
+outdoors, because any one plant of it may be kept inside.
 
 Beyond the forecast horizon, extrapolate with the trailing 14-day mean observed ET0 and
 zero rain. Cap projection at 60 days and report "due in more than 60 days" rather than
@@ -668,6 +706,10 @@ Prune, fertilize and repot are **not** environment-adjusted: a fixed `interval_d
 an optional `active_months` list (fertilize March–October, say). When the computed due
 date falls outside `active_months`, move it to the first day of the next active month.
 There is no defensible physics here and adding some would double the scheduler's surface.
+
+A task with `only_in` set applies only to plants kept there — mulching a bed is outdoor
+care. A task without it applies wherever the plant is, which is almost every task. Moving a
+plant indoors or outdoors changes which of its species' tasks it owes, and nothing else.
 
 ## 8. Notifications
 
@@ -834,6 +876,11 @@ be usable at phone width.
 | `/plants/{id}/care/{slug}` | POST | log a care event by task slug (`water`, or a `species_tasks.slug`); `?action=water` deep link preselects |
 | `/plants/{id}/tasks/{slug}` | POST | task control: enable/disable, snooze until a date, override the interval — keyed on the same slug as above |
 | `/events/{id}/void` | POST | undo a logged event |
+| `/species` | GET | every species, with where its numbers came from |
+| `/species/new` | GET, POST | GET: describe a plant to draft (or the blank form when drafting is off, or `?manual=1`); POST: create a reviewed species — re-validated, never trusted from the draft |
+| `/species/draft` | POST | start a draft in the background and redirect to `/drafts/{id}`; rate limited, writes nothing |
+| `/drafts/{id}` | GET | the draft while it runs (polled by htmx), then the review form, or the reason it failed |
+| `/species/{slug}/edit` | GET, POST | edit a species; the slug is identity and comes from the path |
 | `/settings/tado` | GET, POST | start and complete the device flow |
 | `/settings/diagnostics` | GET | weather staleness, last digest, token countdown, catalog version |
 | `/settings/test-notification` | POST | send a test Discord message |
@@ -862,15 +909,19 @@ an invalid value is a fatal startup error, never a silent default.
 | `PLANTATION_TADO_ENABLED` | no | `true` | false wires `NoopClimate` |
 | `PLANTATION_DISCORD_WEBHOOK_URL` | no | — | absent wires `NoopNotifier` |
 | `PLANTATION_WRITE_TOKEN` | no | — | optional bearer on POST routes |
+| `PLANTATION_ANTHROPIC_API_KEY` | no | — | enables species drafting (§16); absent wires `NoopDrafter` and the species screens show the manual form. Never logged. |
+| `PLANTATION_ANTHROPIC_MODEL` | no | `claude-opus-5` | model id for drafting; a malformed value is a fatal startup error |
 | `PLANTATION_LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
-The Discord webhook URL and Tado tokens are supplied on the cluster and must never be
-committed to git. Coordinates may live in the cluster Helm overlay.
+The Discord webhook URL, Tado tokens and Anthropic API key are supplied on the cluster and
+must never be committed to git. The API key reaches the pod as a Secret (in practice
+unsealed from a SealedSecret in the cluster overlay). Coordinates may live in the cluster Helm overlay.
 
 ## 13. Conventions
 
 - Structured logging with `log/slog`, JSON handler, level from config. Log keys are
-  `snake_case`. **Never log** the Discord webhook URL, Tado tokens, or coordinates.
+  `snake_case`. **Never log** the Discord webhook URL, Tado tokens, the Anthropic API key, or
+  coordinates.
 - Errors wrap with `fmt.Errorf("doing x: %w", err)`. Sentinel errors are exported only
   where callers branch on them. Providers return typed staleness/status data rather than
   errors for expected degraded states.
@@ -934,7 +985,63 @@ committed to git. Coordinates may live in the cluster Helm overlay.
 | notifier | a simulated crash between claim and send yields at most one duplicate; empty days record `skipped` |
 | scheduler | a fake `Clock` over 30 days including a DST transition yields exactly one digest per actionable day, zero on empty days, and one alert per forecast frost event regardless of poll count |
 | image | `/healthz` returns 200 with no database present while `/readyz` returns 503; the built image contains a non-empty `/etc/ssl/certs/ca-certificates.crt` |
+| species drafting | against `httptest`: a clean draft; a draft corrected on its one retry; a draft that fails twice, returned with its problems and never retried a third time; a 429; a refusal; a truncated response. The request carries no `tools`/`tool_choice`, and the output schema uses no keyword structured outputs reject. The API key never reaches a log line. Computing the interval fields from kc/mad/substrate yields a species `catalog.Validate` accepts across the whole parameter grid, except a modelled base interval of 1 day, which must surface as a `min_interval_days` error |
+| catalog | a freshly migrated database has an empty catalog; migration 0005 over a database that already holds species keeps every species, task, plant and care event, and drops only `species.placement` |
 | CI | a push to `main` publishes the next `X.Y.Z` (from the tagging strategy) and `sha-<short>`, writes `image.tag` once, pushes git tag `vX.Y.Z`, and that write-back does not retrigger the workflow |
 
 `go test ./... -race` is the gate. Integration tests that need Postgres read
 `PLANTATION_TEST_DSN` and skip when it is unset.
+
+## 16. Species drafting
+
+A person adding a plant whose species is not in the catalog can describe it and have Claude
+draft the record. This is the only use of a model in the app.
+
+**What the model is asked for, and what it is not.** The form collects identity: a name, optional label text and
+optional notes. It does not ask where the plant will live — that is set on each plant, and
+one species record serves plants in both places, so the model is told to describe the
+species for both (its indoor rest period, and `only_in` on any task that is place-specific).
+The model returns the horticultural constants (`kc`, `mad`, `substrate`, dormancy, minimum
+temperature), the text fields, the care tasks, and a self-assessment: `confidence`,
+`identified_as`, `alternatives`, `reasoning`. It is **not** asked for `base_interval_days`,
+`min_interval_days`, `max_interval_days` or the slug. The intervals are computed by running
+the real `care.ScheduleWater` at the reference point (`catalog.ModelledIntervalDays`) with
+generous bounds around it (`species.IntervalBounds`), so the §7.6 consistency check passes
+by construction instead of by the model guessing a compatible number. The slug is the
+scientific name in kebab-case, derived in code.
+
+**One gate.** A draft is converted to a `domain.Species` and run through `catalog.Validate`,
+the same function a hand-typed species passes. If it fails, the model is shown the errors
+and gets one correction. A second failure is not retried: the draft is returned with its
+problems and shown on the review form beside the fields they belong to. Declarable task
+kinds exclude `water` (scheduled from the reservoir model) and `inspect` (log-only).
+
+**A human reviews every draft.** Drafting writes nothing. The result is an editable form
+that says plainly it was drafted by a model, shows the identification and confidence (a low
+confidence gets a warning), lists alternatives, and only `POST /species/new` stores
+anything — re-validating what was submitted rather than trusting the draft. A draft is
+stored with `origin = 'ai'` only if the submission carries a complete claim (`ai_model` and a
+parseable timestamp); anything else is stored as `manual`.
+
+**Interval recompute.** The intervals derive from kc, mad and substrate. If a person changes
+those and leaves the intervals as they were rendered, the server recomputes them and shows
+the form again instead of saving, so new numbers are never stored unseen. Intervals the
+person changed themselves are kept. A hand-entered species with all three blank has them
+filled in.
+
+**Asynchronous.** Drafting can outlast the ~100 s a Cloudflare tunnel waits on a silent
+request, so `POST /species/draft` returns at once and `/drafts/{id}` is polled. Jobs live in
+memory (§14: one replica) and are dropped after 30 minutes; a restart loses only in-flight
+drafts.
+
+**Cost control.** An in-process token bucket allows 10 drafts an hour. The call uses
+structured outputs (`output_config.format`), not a forced tool call: they work with
+thinking, and forced tool use is rejected by some models.
+
+**Failure is never a 500.** No key, an expired key, a rate limit, a refusal, a truncated
+response or an unreachable API all end at a message and the manual form. Users are shown a
+fixed message per failure class, never the underlying error.
+
+**Known gap.** A modelled base interval of 1 day (gritty cactus mix with kc ≥ 0.9 and
+mad ≤ 0.3 — a moisture-lover in succulent mix) cannot satisfy `1 ≤ min < base`. It is
+reported as a `min_interval_days` error rather than stored.

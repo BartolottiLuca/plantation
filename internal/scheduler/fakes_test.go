@@ -215,7 +215,6 @@ func testSpecies() domain.Species {
 	return domain.Species{
 		Slug:             "test-shrub",
 		CommonName:       "Test shrub",
-		Placement:        domain.Outdoor,
 		Kc:               0.8,
 		Substrate:        domain.Peat,
 		MAD:              0.5,

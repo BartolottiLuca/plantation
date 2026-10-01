@@ -19,7 +19,8 @@ Touch only the files your card names. Cards are run in parallel waves; two agent
 do not own, state it in your summary rather than making it.
 
 Do not add dependencies beyond those the card names. The standard library plus `pgx`,
-`uuid`, `yaml.v3` and `htmx` covers this whole project. No web framework, no ORM, no
+`uuid`, `htmx` and the official `anthropic-sdk-go` (species drafting only) covers this
+whole project. No web framework, no ORM, no
 logging library, no assertion library.
 
 ## Go conventions
@@ -33,7 +34,7 @@ logging library, no assertion library.
 - Wrap errors with context: `fmt.Errorf("fetching rooms: %w", err)`. Expected degraded
   states (stale weather, unlinked Tado) are typed data on the result, not errors.
 - `log/slog` with the JSON handler, `snake_case` keys. **Never log** the Discord webhook
-  URL, Tado tokens, or coordinates.
+  URL, Tado tokens, the Anthropic API key, or coordinates.
 - Anything that reads the clock takes a `Clock`. No `time.Now()` outside `cmd`.
 
 ## Comments
@@ -66,24 +67,28 @@ fDry = clamp(fDry, 0.5, 2.0)
 
 ## Adding a species
 
-No Go code is involved.
+Species are rows in the `species` table; there is no file to edit, nothing is loaded at
+boot and nothing is seeded — a fresh database starts with an empty catalog.
 
-1. Copy `catalog/species/_template.yaml` to `catalog/species/<slug>.yaml`. The slug is
-   the scientific name in kebab-case (`monstera-deliciosa`) and is a permanent identity —
-   renaming it orphans every plant referencing it.
-2. Fill the fields. `SPEC.md` §7.2 lists what each constant means and the value ranges;
-   pick the closest archetype rather than inventing a number.
-3. `go test ./internal/catalog/...`. The validator rejects unknown fields, out-of-range
-   constants, and a `base_interval_days` more than 40 % away from what the physics
-   produces — that last check is a genuine sanity test on the entry, not a formality.
-4. Open a PR. The species table is rebuilt from YAML at every boot; no migration, no
-   manual SQL.
+1. In the app: add a plant, choose "not in the list?", and describe it. Where a Claude
+   API key is configured, the app drafts the record for you to review; without one, the
+   same screen is a blank form.
+2. Check every number on the review screen. `SPEC.md` §7.2 lists what each constant means
+   and the value ranges; pick the closest archetype rather than inventing a number.
+3. Saving runs `catalog.Validate`, which rejects out-of-range constants, task kinds a
+   species cannot declare, and a `base_interval_days` more than 40 % away from what the
+   physics produces — that last check is a genuine sanity test on the entry, not a
+   formality. A drafted species gets its base interval computed from the model.
+
+The slug is the scientific name in kebab-case (`monstera-deliciosa`) and is a permanent
+identity — renaming it orphans every plant referencing it.
 
 Never delete a species that plants reference. Set `retired: true`.
 
 ## Never commit
 
-The Discord webhook URL, Tado tokens, or Docker Hub credentials. Cluster Helm
+The Discord webhook URL, Tado tokens, the Anthropic API key, or Docker Hub credentials
+(the key reaches the cluster as a SealedSecret in the overlay, never in this repo). Cluster Helm
 overlays may include timezone, hostname, and coordinates; the plantation chart
 itself only holds placeholders.
 
