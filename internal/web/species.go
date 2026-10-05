@@ -1,12 +1,15 @@
 package web
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BartolottiLuca/plantation/internal/catalog"
 	"github.com/BartolottiLuca/plantation/internal/domain"
@@ -64,12 +67,13 @@ type speciesFormData struct {
 
 type draftStatusData struct {
 	page
-	ID      string
-	Name    string
-	Failed  bool
-	Message string
-	Retry   string
-	Manual  string
+	ID       string
+	Name     string
+	Failed   bool
+	Message  string
+	Retry    string
+	Manual   string
+	Existing *domain.Species
 }
 
 // draftingEnabled reports whether a real drafter is wired. A NoopDrafter is the
@@ -153,12 +157,53 @@ func (s *Server) draftPOST(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusTooManyRequests, "species_ask.html", ask)
 		return
 	}
-	id, err := s.drafts.start(s.Clock.Now(), s.Drafter, req)
+	id, err := s.drafts.start(s.Clock.Now(), req, s.draftAndSave(req))
 	if err != nil {
 		s.internal(w, "starting species draft", err)
 		return
 	}
 	s.redirect(w, r, "/drafts/"+id)
+}
+
+// saveTimeout bounds the one insert that follows a finished draft.
+const saveTimeout = 10 * time.Second
+
+// errSaveFailed marks a draft that was fine but could not be stored, so the
+// page does not blame the drafting service for a database problem.
+var errSaveFailed = errors.New("saving the drafted species failed")
+
+// draftAndSave is the whole background job: draft, and if the draft is clean,
+// store it straight away. A draft is not shown for confirmation first; it is
+// only shown when it cannot be stored as it is (problems that survived the
+// model's correction round), and an existing species is never overwritten.
+func (s *Server) draftAndSave(req species.Request) func(context.Context) draftOutcome {
+	drafter, repo := s.Drafter, s.Species
+	return func(ctx context.Context) draftOutcome {
+		res, err := drafter.Draft(ctx, req)
+		if err != nil {
+			return draftOutcome{State: draftFailed, Err: err}
+		}
+		if len(res.Problems) > 0 {
+			return draftOutcome{State: draftNeedsReview, Result: res}
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, saveTimeout)
+		defer cancel()
+		err = repo.Create(ctx, res.Species)
+		switch {
+		case err == nil:
+			slog.Info("drafted species saved", "slug", res.Species.Slug, "model", res.Model)
+			return draftOutcome{State: draftSaved, Result: res}
+		case errors.Is(err, store.ErrConflict):
+			existing, gerr := repo.Get(ctx, res.Species.Slug)
+			if gerr == nil {
+				return draftOutcome{State: draftExists, Result: res, Existing: &existing}
+			}
+			err = gerr
+		}
+		slog.Error("saving drafted species", "slug", res.Species.Slug, "err", err)
+		return draftOutcome{State: draftFailed, Err: fmt.Errorf("%w: %w", errSaveFailed, err)}
+	}
 }
 
 func capitalise(s string) string {
@@ -174,6 +219,15 @@ func (s *Server) draftGET(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w)
 		return
 	}
+	if job.State != draftPending && isHTMX(r) {
+		// The polling fragment is done: send the whole page somewhere better.
+		dest := "/drafts/" + job.ID
+		if job.State == draftSaved {
+			dest = savedDest(job.Result.Species.Slug)
+		}
+		s.redirect(w, r, dest)
+		return
+	}
 	switch job.State {
 	case draftPending:
 		data := draftStatusData{page: s.page(r, "add"), ID: job.ID, Name: job.Request.Name}
@@ -182,14 +236,20 @@ func (s *Server) draftGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.render(w, http.StatusOK, "species_drafting.html", data)
-	case draftFailed:
-		if isHTMX(r) {
-			w.Header().Set("HX-Refresh", "true")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
+	case draftSaved:
+		s.redirect(w, r, savedDest(job.Result.Species.Slug))
+	case draftNeedsReview:
+		s.renderReview(w, r, job)
+	case draftExists:
+		s.render(w, http.StatusOK, "species_drafting.html", draftStatusData{
+			page:     s.page(r, "add"),
+			ID:       job.ID,
+			Name:     job.Request.Name,
+			Existing: job.Existing,
+		})
+	default:
 		slog.Warn("species draft failed", "err", job.Err)
-		data := draftStatusData{
+		s.render(w, http.StatusOK, "species_drafting.html", draftStatusData{
 			page:    s.page(r, "add"),
 			ID:      job.ID,
 			Name:    job.Request.Name,
@@ -197,22 +257,22 @@ func (s *Server) draftGET(w http.ResponseWriter, r *http.Request) {
 			Message: draftFailureMessage(job.Err),
 			Retry:   "/species/new?name=" + queryEscape(job.Request.Name),
 			Manual:  "/species/new?manual=1&name=" + queryEscape(job.Request.Name),
-		}
-		s.render(w, http.StatusOK, "species_drafting.html", data)
-	default:
-		if isHTMX(r) {
-			w.Header().Set("HX-Refresh", "true")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		s.renderReview(w, r, job)
+		})
 	}
+}
+
+// savedDest is where a saved draft sends you: straight on to adding the plant,
+// with a note that the species was added without review.
+func savedDest(slug string) string {
+	return "/plants/new?species=" + queryEscape(slug) + "&drafted=1"
 }
 
 // draftFailureMessage picks what a person is told. It never quotes the error:
 // SDK errors can carry request details that do not belong on a page.
 func draftFailureMessage(err error) string {
 	switch {
+	case errors.Is(err, errSaveFailed):
+		return "The species was drafted but could not be saved. Try again in a moment, or fill it in by hand."
 	case errors.Is(err, species.ErrRateLimited):
 		return "The AI service is rate limiting requests right now. Try again in a minute, or fill the species in by hand."
 	case errors.Is(err, species.ErrNoQuota):

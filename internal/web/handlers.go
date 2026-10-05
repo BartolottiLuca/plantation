@@ -63,6 +63,9 @@ type formData struct {
 	Rooms         []climate.RoomClimate
 	UseRoomSelect bool
 	AdvancedOpen  bool
+	// Drafted is a species just added from an AI draft without review; the form
+	// says so and links to it.
+	Drafted *domain.Species
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -118,14 +121,18 @@ func (s *Server) listPlants(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) newPlantGET(w http.ResponseWriter, r *http.Request) {
 	f := blankForm()
+	var drafted *domain.Species
 	// Arriving from "add a species": select it. Where this plant lives is asked
 	// here, on the plant, because the species does not decide it.
 	if slug := r.URL.Query().Get("species"); slug != "" {
 		if sp, err := s.Species.Get(r.Context(), slug); err == nil && !sp.Retired {
 			f.SpeciesSlug = sp.Slug
+			if r.URL.Query().Get("drafted") == "1" && sp.Origin == domain.OriginAI {
+				drafted = &sp
+			}
 		}
 	}
-	s.renderForm(w, r, http.StatusOK, "Add a plant", "/plants/new", "Add plant", f, "")
+	s.renderFormWith(w, r, http.StatusOK, "Add a plant", "/plants/new", "Add plant", f, "", drafted)
 }
 
 func (s *Server) newPlantPOST(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +322,10 @@ func (s *Server) voidEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, heading, action, submit string, f plantForm, plantID string) {
+	s.renderFormWith(w, r, status, heading, action, submit, f, plantID, nil)
+}
+
+func (s *Server) renderFormWith(w http.ResponseWriter, r *http.Request, status int, heading, action, submit string, f plantForm, plantID string, drafted *domain.Species) {
 	keep := f.SpeciesSlug
 	species, err := s.pickerSpecies(r.Context(), keep)
 	if err != nil {
@@ -339,6 +350,7 @@ func (s *Server) renderForm(w http.ResponseWriter, r *http.Request, status int, 
 		Rooms:         rooms,
 		UseRoomSelect: len(rooms) > 1,
 		AdvancedOpen:  f.advancedOpen(),
+		Drafted:       drafted,
 	})
 }
 

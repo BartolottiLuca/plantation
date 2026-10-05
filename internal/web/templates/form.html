@@ -1,6 +1,7 @@
 {{define "title"}}{{.Heading}} · Plantation{{end}}
 {{define "content"}}
 <h1>{{.Heading}}</h1>
+{{with .Drafted}}<p class="warn" role="status">Added <strong>{{.CommonName}}</strong> ({{.ScientificName}}), drafted by AI ({{.AIModel}}) and saved without review. <a href="/species/{{.Slug}}/edit">Check or edit its numbers</a>.</p>{{end}}
 <form class="plant-form" method="post" action="{{.Action}}">
   <label for="name">Name
     <input id="name" name="name" type="text" required maxlength="200" value="{{.Form.Name}}" autocomplete="off">

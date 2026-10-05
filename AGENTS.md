@@ -71,10 +71,11 @@ Species are rows in the `species` table; there is no file to edit, nothing is lo
 boot and nothing is seeded — a fresh database starts with an empty catalog.
 
 1. In the app: add a plant, choose "not in the list?", and describe it. Where an OpenAI
-   API key is configured, the app drafts the record for you to review; without one, the
-   same screen is a blank form.
-2. Check every number on the review screen. `SPEC.md` §7.2 lists what each constant means
-   and the value ranges; pick the closest archetype rather than inventing a number.
+   API key is configured, the app drafts the record and saves it straight away if it
+   validates; without one, the same screen is a blank form.
+2. Check the numbers afterwards on the species' edit page — a drafted species is saved
+   without review. `SPEC.md` §7.2 lists what each constant means and the value ranges;
+   pick the closest archetype rather than inventing a number.
 3. Saving runs `catalog.Validate`, which rejects out-of-range constants, task kinds a
    species cannot declare, and a `base_interval_days` more than 40 % away from what the
    physics produces — that last check is a genuine sanity test on the entry, not a

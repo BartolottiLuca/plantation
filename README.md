@@ -34,7 +34,7 @@ due today; 8 mm rain forecast Thursday at 80 %, so deferred to Friday."*
 
 Species live in the database, and a fresh one starts empty. You add them in the app
 (**Add → Add a species**), either by hand or by describing the plant
-and letting an OpenAI model draft the record for you to review before anything is saved — see
+and letting an OpenAI model draft it, which saves it straight away (check or edit it afterwards) — see
 [SPEC.md](SPEC.md) §16. Drafting is optional and off unless an API key is configured.
 
 ## Running locally

@@ -1,6 +1,11 @@
 {{define "title"}}Drafting · Plantation{{end}}
 {{define "content"}}
-{{if .Failed}}
+{{if .Existing}}{{with .Existing}}
+<h1>Already in your species</h1>
+<p class="empty" role="status">You already have <strong>{{.CommonName}}</strong> ({{.ScientificName}}), so nothing was added or changed.</p>
+<p><a class="btn" href="/plants/new?species={{.Slug}}">Use it for a plant</a></p>
+<p class="meta"><a href="/species/{{.Slug}}/edit">Edit it</a></p>
+{{end}}{{else if .Failed}}
 <h1>Could not draft that</h1>
 <p class="warn" role="alert">{{.Message}}</p>
 <p><a class="btn" href="{{.Retry}}">Try again</a></p>
