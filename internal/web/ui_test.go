@@ -23,7 +23,6 @@ func fixtureSpecies() domain.Species {
 		Slug:             "monstera-deliciosa",
 		CommonName:       "Swiss cheese plant",
 		ScientificName:   "Monstera deliciosa",
-		Placement:        domain.Indoor,
 		Kc:               0.7,
 		Substrate:        domain.Peat,
 		MAD:              0.5,

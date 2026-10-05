@@ -111,6 +111,32 @@ func (m memSpecies) List(context.Context) ([]domain.Species, error) {
 	return out, nil
 }
 
+func (m memSpecies) Create(_ context.Context, s domain.Species) error {
+	m.db.mu.Lock()
+	defer m.db.mu.Unlock()
+	if _, ok := m.db.species[s.Slug]; ok {
+		return store.ErrConflict
+	}
+	if s.Origin == "" {
+		s.Origin = domain.OriginManual
+	}
+	m.db.species[s.Slug] = s
+	return nil
+}
+
+func (m memSpecies) Update(_ context.Context, s domain.Species) error {
+	m.db.mu.Lock()
+	defer m.db.mu.Unlock()
+	old, ok := m.db.species[s.Slug]
+	if !ok {
+		return store.ErrNotFound
+	}
+	// Mirror the real repo: an edit never rewrites provenance.
+	s.Origin, s.AIModel, s.AIDraftedAt = old.Origin, old.AIModel, old.AIDraftedAt
+	m.db.species[s.Slug] = s
+	return nil
+}
+
 func (m memSpecies) Get(_ context.Context, slug string) (domain.Species, error) {
 	m.db.mu.Lock()
 	defer m.db.mu.Unlock()

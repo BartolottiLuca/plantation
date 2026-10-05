@@ -2,11 +2,17 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/BartolottiLuca/plantation/internal/domain"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// uniqueViolation is SQLSTATE 23505.
+const uniqueViolation = "23505"
 
 type SpeciesRepo struct {
 	pool *pgxpool.Pool
@@ -16,79 +22,113 @@ func NewSpeciesRepo(pool *pgxpool.Pool) *SpeciesRepo {
 	return &SpeciesRepo{pool: pool}
 }
 
-func (r *SpeciesRepo) UpsertAll(ctx context.Context, species []domain.Species) error {
+// Create inserts a new species and its tasks. A slug that already exists
+// returns ErrConflict rather than overwriting: a slug is a permanent identity,
+// and quietly replacing the species behind existing plants is never what a
+// form submission means.
+func (r *SpeciesRepo) Create(ctx context.Context, s domain.Species) error {
 	return Retry(ctx, func(ctx context.Context) error {
 		tx, err := r.pool.Begin(ctx)
 		if err != nil {
-			return fmt.Errorf("upserting species: %w", err)
+			return fmt.Errorf("creating species %s: %w", s.Slug, err)
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 
-		const q = `
+		_, err = tx.Exec(ctx, `
 			INSERT INTO species (
-				slug, common_name, scientific_name, description, placement, kc, substrate, mad,
+				slug, common_name, scientific_name, description, kc, substrate, mad,
 				base_interval_days, min_interval_days, max_interval_days,
 				dormant_months, dormancy_factor, min_temp_c, frost_tender,
-				care_advice, retired, updated_at
+				care_advice, retired, origin, ai_model, ai_drafted_at, updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8,
-				$9, $10, $11,
-				$12, $13, $14, $15,
-				$16, $17, now()
-			)
-			ON CONFLICT (slug) DO UPDATE SET
-				common_name = EXCLUDED.common_name,
-				scientific_name = EXCLUDED.scientific_name,
-				description = EXCLUDED.description,
-				placement = EXCLUDED.placement,
-				kc = EXCLUDED.kc,
-				substrate = EXCLUDED.substrate,
-				mad = EXCLUDED.mad,
-				base_interval_days = EXCLUDED.base_interval_days,
-				min_interval_days = EXCLUDED.min_interval_days,
-				max_interval_days = EXCLUDED.max_interval_days,
-				dormant_months = EXCLUDED.dormant_months,
-				dormancy_factor = EXCLUDED.dormancy_factor,
-				min_temp_c = EXCLUDED.min_temp_c,
-				frost_tender = EXCLUDED.frost_tender,
-				care_advice = EXCLUDED.care_advice,
-				retired = EXCLUDED.retired,
-				updated_at = now()`
-
-		for _, s := range species {
-			_, err := tx.Exec(ctx, q,
-				s.Slug, s.CommonName, s.ScientificName, s.Description, string(s.Placement),
-				s.Kc, string(s.Substrate), s.MAD,
-				s.BaseIntervalDays, s.MinIntervalDays, s.MaxIntervalDays,
-				monthsToInts(s.DormantMonths), s.DormancyFactor, s.MinTempC, s.FrostTender,
-				s.CareAdvice, s.Retired,
-			)
-			if err != nil {
-				return fmt.Errorf("upserting species %s: %w", s.Slug, err)
+				$1, $2, $3, $4, $5, $6, $7,
+				$8, $9, $10,
+				$11, $12, $13, $14,
+				$15, $16, $17, $18, $19, now()
+			)`,
+			s.Slug, s.CommonName, s.ScientificName, s.Description,
+			s.Kc, string(s.Substrate), s.MAD,
+			s.BaseIntervalDays, s.MinIntervalDays, s.MaxIntervalDays,
+			monthsToInts(s.DormantMonths), s.DormancyFactor, s.MinTempC, s.FrostTender,
+			s.CareAdvice, s.Retired, originOrManual(s.Origin), nullIfEmpty(s.AIModel), s.AIDraftedAt,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
+				return fmt.Errorf("creating species %s: %w", s.Slug, ErrConflict)
 			}
-			// species_tasks is rebuilt wholesale per species, exactly like species
-			// itself: delete-then-insert is simpler and just as correct as diffing
-			// when the whole set is rewritten at every boot anyway.
-			if _, err := tx.Exec(ctx, `DELETE FROM species_tasks WHERE species_slug = $1`, s.Slug); err != nil {
-				return fmt.Errorf("clearing tasks for species %s: %w", s.Slug, err)
-			}
-			for i, task := range s.Tasks {
-				_, err := tx.Exec(ctx, `
-					INSERT INTO species_tasks
-						(species_slug, slug, kind, label, interval_days, active_months, sort_order)
-					VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-					s.Slug, task.Slug, string(task.Kind), task.Label,
-					task.IntervalDays, monthsToInts(task.ActiveMonths), i)
-				if err != nil {
-					return fmt.Errorf("upserting task %s for species %s: %w", task.Slug, s.Slug, err)
-				}
-			}
+			return fmt.Errorf("creating species %s: %w", s.Slug, err)
+		}
+		if err := insertTasks(ctx, tx, s); err != nil {
+			return err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("upserting species: %w", err)
+			return fmt.Errorf("creating species %s: %w", s.Slug, err)
 		}
 		return nil
 	})
+}
+
+// Update overwrites an existing species and replaces its task list. Slug and
+// provenance are not touched: the slug is identity, and an edit does not change
+// who first wrote the record. Tasks are deleted and reinserted because nothing
+// references species_tasks by key — care events and per-plant controls carry the
+// task slug as plain text — so a task the form keeps under the same slug is
+// indistinguishable from one that was never removed.
+func (r *SpeciesRepo) Update(ctx context.Context, s domain.Species) error {
+	return Retry(ctx, func(ctx context.Context) error {
+		tx, err := r.pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("updating species %s: %w", s.Slug, err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		tag, err := tx.Exec(ctx, `
+			UPDATE species SET
+				common_name = $2, scientific_name = $3, description = $4,
+				kc = $5, substrate = $6, mad = $7,
+				base_interval_days = $8, min_interval_days = $9, max_interval_days = $10,
+				dormant_months = $11, dormancy_factor = $12, min_temp_c = $13, frost_tender = $14,
+				care_advice = $15, retired = $16, updated_at = now()
+			WHERE slug = $1`,
+			s.Slug, s.CommonName, s.ScientificName, s.Description,
+			s.Kc, string(s.Substrate), s.MAD,
+			s.BaseIntervalDays, s.MinIntervalDays, s.MaxIntervalDays,
+			monthsToInts(s.DormantMonths), s.DormancyFactor, s.MinTempC, s.FrostTender,
+			s.CareAdvice, s.Retired,
+		)
+		if err != nil {
+			return fmt.Errorf("updating species %s: %w", s.Slug, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("updating species %s: %w", s.Slug, ErrNotFound)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM species_tasks WHERE species_slug = $1`, s.Slug); err != nil {
+			return fmt.Errorf("clearing tasks for species %s: %w", s.Slug, err)
+		}
+		if err := insertTasks(ctx, tx, s); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("updating species %s: %w", s.Slug, err)
+		}
+		return nil
+	})
+}
+
+func insertTasks(ctx context.Context, tx pgx.Tx, s domain.Species) error {
+	for i, task := range s.Tasks {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO species_tasks
+				(species_slug, slug, kind, label, interval_days, active_months, sort_order, only_in)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			s.Slug, task.Slug, string(task.Kind), task.Label,
+			task.IntervalDays, monthsToInts(task.ActiveMonths), i, nullIfEmpty(string(task.OnlyIn)))
+		if err != nil {
+			return fmt.Errorf("inserting task %s for species %s: %w", task.Slug, s.Slug, err)
+		}
+	}
+	return nil
 }
 
 func (r *SpeciesRepo) List(ctx context.Context) ([]domain.Species, error) {
@@ -141,14 +181,14 @@ func (r *SpeciesRepo) Get(ctx context.Context, slug string) (domain.Species, err
 }
 
 const speciesSelect = `
-	SELECT slug, common_name, scientific_name, description, placement, kc, substrate, mad,
+	SELECT slug, common_name, scientific_name, description, kc, substrate, mad,
 		base_interval_days, min_interval_days, max_interval_days,
 		dormant_months, dormancy_factor, min_temp_c, frost_tender,
-		care_advice, retired
+		care_advice, retired, origin, ai_model, ai_drafted_at
 	FROM species`
 
 const speciesTasksSelect = `
-	SELECT species_slug, slug, kind, label, interval_days, active_months
+	SELECT species_slug, slug, kind, label, interval_days, active_months, only_in
 	FROM species_tasks`
 
 type speciesScanner interface {
@@ -158,20 +198,24 @@ type speciesScanner interface {
 func scanSpecies(row speciesScanner) (domain.Species, error) {
 	var (
 		s         domain.Species
-		placement string
 		substrate string
 		dormant   []int32
+		origin    string
+		aiModel   *string
 	)
 	err := row.Scan(
-		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &placement, &s.Kc, &substrate, &s.MAD,
+		&s.Slug, &s.CommonName, &s.ScientificName, &s.Description, &s.Kc, &substrate, &s.MAD,
 		&s.BaseIntervalDays, &s.MinIntervalDays, &s.MaxIntervalDays,
 		&dormant, &s.DormancyFactor, &s.MinTempC, &s.FrostTender,
-		&s.CareAdvice, &s.Retired,
+		&s.CareAdvice, &s.Retired, &origin, &aiModel, &s.AIDraftedAt,
 	)
 	if err != nil {
 		return domain.Species{}, err
 	}
-	s.Placement = domain.Location(placement)
+	s.Origin = domain.SpeciesOrigin(origin)
+	if aiModel != nil {
+		s.AIModel = *aiModel
+	}
 	s.Substrate = domain.SubstrateKind(substrate)
 	s.DormantMonths = intsToMonths(dormant)
 	return s, nil
@@ -213,16 +257,34 @@ func loadTasks(ctx context.Context, pool *pgxpool.Pool, slugs []string) (map[str
 			t           domain.SpeciesTask
 			kind        string
 			months      []int32
+			onlyIn      *string
 		)
-		if err := rows.Scan(&speciesSlug, &t.Slug, &kind, &t.Label, &t.IntervalDays, &months); err != nil {
+		if err := rows.Scan(&speciesSlug, &t.Slug, &kind, &t.Label, &t.IntervalDays, &months, &onlyIn); err != nil {
 			return nil, fmt.Errorf("listing species tasks: %w", err)
 		}
 		t.Kind = domain.TaskKind(kind)
 		t.ActiveMonths = intsToMonths(months)
+		if onlyIn != nil {
+			t.OnlyIn = domain.Location(*onlyIn)
+		}
 		out[speciesSlug] = append(out[speciesSlug], t)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("listing species tasks: %w", err)
 	}
 	return out, nil
+}
+
+func originOrManual(o domain.SpeciesOrigin) string {
+	if o == "" {
+		return string(domain.OriginManual)
+	}
+	return string(o)
+}
+
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

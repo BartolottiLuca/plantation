@@ -1,0 +1,19 @@
+{{define "title"}}Drafting · Plantation{{end}}
+{{define "content"}}
+{{if .Failed}}
+<h1>Could not draft that</h1>
+<p class="warn" role="alert">{{.Message}}</p>
+<p><a class="btn" href="{{.Retry}}">Try again</a></p>
+<p class="meta"><a href="{{.Manual}}">Fill it in by hand instead</a></p>
+{{else}}
+<h1>Drafting {{.Name}}</h1>
+{{template "draft-pending" .}}
+{{end}}
+{{end}}
+
+{{define "draft-pending"}}
+<div id="draft-status" hx-get="/drafts/{{.ID}}" hx-trigger="every 2s" hx-swap="outerHTML">
+  <p class="empty" role="status">The AI is working on {{.Name}}. This usually takes under a minute, and the page updates by itself.</p>
+  <p class="meta"><a href="/drafts/{{.ID}}">Check now</a></p>
+</div>
+{{end}}

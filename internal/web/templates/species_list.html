@@ -1,0 +1,21 @@
+{{define "title"}}Species · Plantation{{end}}
+{{define "content"}}
+<h1>Species</h1>
+{{if not .Species}}
+<p class="empty">No species yet. <a href="/species/new">Add a species</a>.</p>
+{{else}}
+<ul class="plant-list">
+  {{range .Species}}
+  <li>
+    <a href="/species/{{.Slug}}/edit">
+      <strong>{{.CommonName}}</strong>
+      <span class="meta">{{.Scientific}}</span>
+      <span class="meta">{{.Origin}} · {{.Tasks}} care {{if eq .Tasks 1}}task{{else}}tasks{{end}}</span>
+      {{if .Retired}}<span class="warn">Retired</span>{{end}}
+    </a>
+  </li>
+  {{end}}
+</ul>
+{{end}}
+<p><a class="btn" href="/species/new">Add a species</a></p>
+{{end}}

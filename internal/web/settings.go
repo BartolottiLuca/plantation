@@ -342,7 +342,6 @@ type notifyDiagView struct {
 
 type catalogDiagView struct {
 	SpeciesCount int
-	Ready        bool
 	Unavailable  bool
 }
 
@@ -470,7 +469,7 @@ func (s *Server) notifyDiag(ctx context.Context) notifyDiagView {
 }
 
 func (s *Server) catalogDiag(ctx context.Context) catalogDiagView {
-	view := catalogDiagView{Ready: s.CatalogReady}
+	var view catalogDiagView
 	if s.Species == nil {
 		view.Unavailable = true
 		return view

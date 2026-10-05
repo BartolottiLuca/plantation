@@ -27,16 +27,16 @@ const (
 	physicsProjectionDays = 60
 )
 
-// checkPhysicsConsistency returns nil when y.BaseIntervalDays is within 40%
-// of the interval care.ScheduleWater produces for y's Kc/MAD/substrate at the
-// reference point, or an error fragment (no file/slug prefix — the caller
-// adds that) describing the mismatch otherwise.
-func checkPhysicsConsistency(y speciesYAML) error {
-	modeled := physicsIntervalDays(y.Kc, y.MAD, domain.SubstrateKind(y.Substrate))
+// checkPhysicsConsistency returns nil when baseIntervalDays is within 40% of
+// the interval care.ScheduleWater produces for kc/mad/substrate at the
+// reference point, or an error fragment (no field prefix — the caller adds
+// that) describing the mismatch otherwise.
+func checkPhysicsConsistency(kc, mad float64, substrate domain.SubstrateKind, baseIntervalDays int) error {
+	modeled := ModelledIntervalDays(kc, mad, substrate)
 	if modeled <= 0 {
 		return nil
 	}
-	declared := float64(y.BaseIntervalDays)
+	declared := float64(baseIntervalDays)
 	diff := math.Abs(declared-float64(modeled)) / float64(modeled)
 	if diff <= physicsToleranceFrac {
 		return nil
@@ -47,9 +47,12 @@ func checkPhysicsConsistency(y speciesYAML) error {
 	)
 }
 
-// physicsIntervalDays runs the real care.ScheduleWater at the reference point
-// and returns the resulting interval in days from an arbitrary "today".
-func physicsIntervalDays(kc, mad float64, substrate domain.SubstrateKind) int {
+// ModelledIntervalDays runs the real care.ScheduleWater at the reference point
+// and returns the resulting interval in days from an arbitrary "today". A
+// species whose base_interval_days equals this passes the physics check by
+// construction, which is how a drafted species avoids depending on a model
+// guessing a compatible number.
+func ModelledIntervalDays(kc, mad float64, substrate domain.SubstrateKind) int {
 	today := domain.Date{Year: 2024, Month: time.January, Day: 15}
 	days := make([]care.DayEnv, 0, physicsTrailingDays+physicsProjectionDays+1)
 	for i := -physicsTrailingDays; i <= physicsProjectionDays; i++ {

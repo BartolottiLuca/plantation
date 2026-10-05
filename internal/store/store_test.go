@@ -270,7 +270,7 @@ func TestBatchReadsMatchPerPlantReads(t *testing.T) {
 	}
 }
 
-// TestSpeciesTasksRoundTripAndOrdering exercises UpsertAll/List/Get with a
+// TestSpeciesTasksRoundTripAndOrdering exercises Create/Update/List/Get with a
 // real task list, including a species with two tasks of the same kind —
 // lavender's hard spring prune and light after-flowering trim — which the
 // old three-column shape could never express.
@@ -282,7 +282,7 @@ func TestSpeciesTasksRoundTripAndOrdering(t *testing.T) {
 	lavender := domain.Species{
 		Slug: "lavandula-angustifolia", CommonName: "English lavender",
 		Description: "Prefers poor, sharply-draining soil and full sun.",
-		Placement:   domain.Outdoor, Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7,
+		Kc:          0.4, Substrate: domain.Cactus, MAD: 0.7,
 		BaseIntervalDays: 8, MinIntervalDays: 4, MaxIntervalDays: 21, MinTempC: -15,
 		Tasks: []domain.SpeciesTask{
 			{Slug: "prune-hard", Kind: domain.Prune, Label: "Hard prune",
@@ -293,8 +293,8 @@ func TestSpeciesTasksRoundTripAndOrdering(t *testing.T) {
 				IntervalDays: 1095},
 		},
 	}
-	if err := species.UpsertAll(ctx, []domain.Species{lavender}); err != nil {
-		t.Fatalf("UpsertAll: %v", err)
+	if err := species.Create(ctx, lavender); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
 	got, err := species.Get(ctx, "lavandula-angustifolia")
@@ -331,11 +331,11 @@ func TestSpeciesTasksRoundTripAndOrdering(t *testing.T) {
 		t.Fatalf("List: Tasks = %+v, want 3 (batch attach failed)", listed.Tasks)
 	}
 
-	// Re-upserting with a shrunk task list must remove the dropped task, not
-	// leave it behind — species_tasks is rebuilt wholesale, like species itself.
+	// Updating with a shrunk task list must remove the dropped task, not leave
+	// it behind — the task list is replaced wholesale on every update.
 	lavender.Tasks = lavender.Tasks[:1]
-	if err := species.UpsertAll(ctx, []domain.Species{lavender}); err != nil {
-		t.Fatalf("UpsertAll (shrink): %v", err)
+	if err := species.Update(ctx, lavender); err != nil {
+		t.Fatalf("Update (shrink): %v", err)
 	}
 	got, err = species.Get(ctx, "lavandula-angustifolia")
 	if err != nil {
@@ -409,5 +409,120 @@ func TestTwoTasksOfOneKindTrackIndependentLastDone(t *testing.T) {
 	}
 	if len(batch[p.ID]) != 2 {
 		t.Fatalf("batch form returned %d events, want 2: %+v", len(batch[p.ID]), batch[p.ID])
+	}
+}
+
+func TestSpeciesCreateRejectsDuplicateSlug(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	repo := NewSpeciesRepo(pool)
+	mustSpecies(t, repo, "ficus-lyrata")
+
+	dup := domain.Species{
+		Slug: "ficus-lyrata", CommonName: "Impostor", Kc: 0.7,
+		Substrate: domain.Peat, MAD: 0.5, BaseIntervalDays: 6, MinIntervalDays: 3, MaxIntervalDays: 21,
+		DormancyFactor: 1, MinTempC: 10,
+	}
+	err := repo.Create(ctx, dup)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("Create over an existing slug = %v, want ErrConflict", err)
+	}
+	got, err := repo.Get(ctx, "ficus-lyrata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CommonName == "Impostor" {
+		t.Error("a rejected create overwrote the existing species")
+	}
+}
+
+func TestSpeciesUpdateMissingSlugIsNotFound(t *testing.T) {
+	pool := migratedPool(t)
+	err := NewSpeciesRepo(pool).Update(context.Background(), domain.Species{
+		Slug: "nope", CommonName: "x", Substrate: domain.Peat,
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update of a missing species = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSpeciesProvenanceRoundTripAndSurvivesEdit(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	repo := NewSpeciesRepo(pool)
+
+	drafted := time.Date(2026, time.March, 3, 10, 0, 0, 0, time.UTC)
+	s := domain.Species{
+		Slug: "zamioculcas-zamiifolia", CommonName: "ZZ plant", ScientificName: "Zamioculcas zamiifolia",
+		Kc: 0.3, Substrate: domain.Cactus, MAD: 0.7,
+		BaseIntervalDays: 10, MinIntervalDays: 3, MaxIntervalDays: 35, DormancyFactor: 0.5, MinTempC: 10,
+		Origin: domain.OriginAI, AIModel: "claude-opus-5", AIDraftedAt: &drafted,
+	}
+	if err := repo.Create(ctx, s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := repo.Get(ctx, s.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Origin != domain.OriginAI || got.AIModel != "claude-opus-5" || got.AIDraftedAt == nil || !got.AIDraftedAt.Equal(drafted) {
+		t.Fatalf("provenance did not round trip: %q %q %v", got.Origin, got.AIModel, got.AIDraftedAt)
+	}
+
+	// An edit by a person must not rewrite who first wrote the record, and a
+	// caller that forgets to carry provenance must not erase it.
+	edit := got
+	edit.Origin, edit.AIModel, edit.AIDraftedAt = domain.OriginManual, "", nil
+	edit.CommonName = "Zanzibar gem"
+	if err := repo.Update(ctx, edit); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	after, err := repo.Get(ctx, s.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.CommonName != "Zanzibar gem" {
+		t.Errorf("edit not applied: %q", after.CommonName)
+	}
+	if after.Origin != domain.OriginAI || after.AIModel != "claude-opus-5" || after.AIDraftedAt == nil {
+		t.Errorf("edit changed provenance: %q %q %v", after.Origin, after.AIModel, after.AIDraftedAt)
+	}
+}
+
+func TestSpeciesWithoutOriginIsStoredAsManual(t *testing.T) {
+	pool := migratedPool(t)
+	repo := NewSpeciesRepo(pool)
+	mustSpecies(t, repo, "hoya-carnosa")
+	got, err := repo.Get(context.Background(), "hoya-carnosa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Origin != domain.OriginManual {
+		t.Errorf("origin = %q, want %q", got.Origin, domain.OriginManual)
+	}
+}
+
+func TestSpeciesTaskOnlyInRoundTrip(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+	repo := NewSpeciesRepo(pool)
+	s := domain.Species{
+		Slug: "lavandula-angustifolia", CommonName: "Lavender", ScientificName: "Lavandula angustifolia",
+		Kc: 0.4, Substrate: domain.Cactus, MAD: 0.7, BaseIntervalDays: 8, MinIntervalDays: 4, MaxIntervalDays: 21,
+		DormancyFactor: 0.5, MinTempC: -15,
+		Tasks: []domain.SpeciesTask{
+			{Slug: "trim", Kind: domain.Prune, Label: "Trim", IntervalDays: 365},
+			{Slug: "mulch-bed", Kind: domain.Mulch, Label: "Mulch the bed", IntervalDays: 365, OnlyIn: domain.Outdoor},
+		},
+	}
+	if err := repo.Create(ctx, s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := repo.Get(ctx, s.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].OnlyIn != "" || got.Tasks[1].OnlyIn != domain.Outdoor {
+		t.Errorf("only_in = %q/%q, want \"\"/outdoor", got.Tasks[0].OnlyIn, got.Tasks[1].OnlyIn)
 	}
 }

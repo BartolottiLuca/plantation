@@ -10,6 +10,7 @@ import (
 	"github.com/BartolottiLuca/plantation/internal/climate"
 	"github.com/BartolottiLuca/plantation/internal/domain"
 	"github.com/BartolottiLuca/plantation/internal/notify"
+	"github.com/BartolottiLuca/plantation/internal/species"
 	"github.com/BartolottiLuca/plantation/internal/store"
 	"github.com/google/uuid"
 )
@@ -23,10 +24,12 @@ type PlantRepo interface {
 	List(ctx context.Context) ([]store.PlantWithSpecies, error)
 }
 
-// SpeciesRepo is the catalog the UI reads. *store.SpeciesRepo satisfies it.
+// SpeciesRepo is the catalog the UI reads and edits. *store.SpeciesRepo satisfies it.
 type SpeciesRepo interface {
 	List(ctx context.Context) ([]domain.Species, error)
 	Get(ctx context.Context, slug string) (domain.Species, error)
+	Create(ctx context.Context, s domain.Species) error
+	Update(ctx context.Context, s domain.Species) error
 }
 
 // CareEventRepo is the append-only care log. *store.CareEventRepo satisfies it.
@@ -78,6 +81,9 @@ type Server struct {
 	// NotificationRepo has no "last digest" query; cmd injects this.
 	LastDigestFailed func(context.Context) bool
 	Env              EnvFunc
+	// Drafter drafts new species with a model. Nil, or a species.NoopDrafter,
+	// disables drafting and leaves the manual form as the only way in.
+	Drafter species.Drafter
 
 	// Settings (C11). Nil optional seams render a disabled explanation, not a 500.
 	Tado              TadoLinker
@@ -87,11 +93,12 @@ type Server struct {
 	Weather           WeatherSeries
 	LocationKey       string
 	Scheduler         SchedulerStat
-	CatalogReady      bool
 	LastNotifications func(context.Context) (NotificationSnapshot, error)
 
-	pages    map[string]*template.Template
-	tadoFlow *tadoFlowState
+	pages      map[string]*template.Template
+	tadoFlow   *tadoFlowState
+	drafts     *draftStore
+	draftLimit *rateLimiter
 }
 
 // NewServer copies opts, parses embedded templates, and defaults a nil Location to UTC.
@@ -106,6 +113,8 @@ func NewServer(opts Server) *Server {
 	}
 	s.pages = parsePages()
 	s.tadoFlow = &tadoFlowState{}
+	s.drafts = newDraftStore()
+	s.draftLimit = newRateLimiter(draftsPerHour)
 	return &s
 }
 
@@ -122,6 +131,14 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /plants/{id}/care/{slug}", s.requireWrite(s.logCare))
 	mux.HandleFunc("POST /plants/{id}/tasks/{slug}", s.requireWrite(s.updateTask))
 	mux.HandleFunc("POST /events/{id}/void", s.requireWrite(s.voidEvent))
+
+	mux.HandleFunc("GET /species", noIndex(s.speciesList))
+	mux.HandleFunc("GET /species/new", noIndex(s.newSpeciesGET))
+	mux.HandleFunc("POST /species/new", s.requireWrite(s.createSpeciesPOST))
+	mux.HandleFunc("POST /species/draft", s.requireWrite(s.draftPOST))
+	mux.HandleFunc("GET /drafts/{id}", noIndex(s.draftGET))
+	mux.HandleFunc("GET /species/{slug}/edit", noIndex(s.editSpeciesGET))
+	mux.HandleFunc("POST /species/{slug}/edit", s.requireWrite(s.editSpeciesPOST))
 	s.registerSettings(mux)
 	mux.Handle("GET /static/", noIndex(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

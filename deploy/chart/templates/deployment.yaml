@@ -96,6 +96,13 @@ spec:
                   name: {{ .Values.writeToken.existingSecretName }}
                   key: {{ .Values.writeToken.existingSecretKey }}
             {{- end }}
+            {{- if .Values.openai.existingSecretName }}
+            - name: PLANTATION_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openai.existingSecretName }}
+                  key: {{ .Values.openai.existingSecretKey }}
+            {{- end }}
           livenessProbe:
             # /healthz must never touch the database — see internal/web/health.go.
             httpGet:

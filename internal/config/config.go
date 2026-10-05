@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +25,11 @@ type Config struct {
 	TadoEnabled    bool
 	DiscordWebhook string
 	WriteToken     string
-	LogLevel       slog.Level
+	// OpenAIAPIKey enables species drafting; empty leaves it disabled. Never logged.
+	OpenAIAPIKey string
+	// OpenAIModel overrides the drafter's default model; empty means the default.
+	OpenAIModel string
+	LogLevel    slog.Level
 }
 
 func Load() (Config, error) {
@@ -65,6 +70,12 @@ func Load() (Config, error) {
 
 	cfg.WriteToken = strings.TrimSpace(os.Getenv("PLANTATION_WRITE_TOKEN"))
 	cfg.DiscordWebhook = strings.TrimSpace(os.Getenv("PLANTATION_DISCORD_WEBHOOK_URL"))
+	cfg.OpenAIAPIKey = strings.TrimSpace(os.Getenv("PLANTATION_OPENAI_API_KEY"))
+
+	cfg.OpenAIModel = strings.TrimSpace(os.Getenv("PLANTATION_OPENAI_MODEL"))
+	if cfg.OpenAIModel != "" && !modelID.MatchString(cfg.OpenAIModel) {
+		return Config{}, fmt.Errorf("PLANTATION_OPENAI_MODEL %q is not a model id", cfg.OpenAIModel)
+	}
 
 	cfg.TadoEnabled, err = envBool("PLANTATION_TADO_ENABLED", true)
 	if err != nil {
@@ -109,6 +120,11 @@ func Load() (Config, error) {
 
 	return cfg, nil
 }
+
+// modelID accepts model id shapes (letters, digits, dots, hyphens, colons,
+// slashes — fine-tuned ids contain colons) and refuses whitespace and quotes,
+// which only ever mean a mangled value in a manifest.
+var modelID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
 func require(key string) (string, error) {
 	v := strings.TrimSpace(os.Getenv(key))
