@@ -163,7 +163,7 @@ func TestManualFormIsReachableWhenEnabled(t *testing.T) {
 	assertNotContains(t, rec, "not set up on this server")
 }
 
-func TestDraftLifecyclePendingThenReview(t *testing.T) {
+func TestDraftLifecyclePendingThenSavedStraightAway(t *testing.T) {
 	d := &fakeDrafter{gate: make(chan struct{}), res: draftedResult(species.ConfidenceHigh)}
 	_, db, mux := speciesUI(t, d)
 
@@ -178,49 +178,58 @@ func TestDraftLifecyclePendingThenReview(t *testing.T) {
 	pending := doGET(t, mux, path)
 	assertStatus(t, pending, http.StatusOK)
 	assertContains(t, pending, `hx-trigger="every 2s"`, "The AI is working on wax plant")
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("HX-Request", "true")
-	frag := httptest.NewRecorder()
-	mux.ServeHTTP(frag, req)
+	assertNoExternalAssets(t, pending)
+	frag := htmxGET(t, mux, path)
 	assertStatus(t, frag, http.StatusOK)
 	assertContains(t, frag, `id="draft-status"`)
 	assertNotContains(t, frag, "<html")
-
-	close(d.gate)
-	review := waitForDraft(t, mux, path)
-	assertStatus(t, review, http.StatusOK)
-	assertContains(t, review,
-		"Drafted by AI", "not curated data", "Check every number",
-		"Identified as", "Hoya carnosa", "confidence <strong>high</strong>",
-		"Draft Hoya kerrii instead",
-		`name="origin" value="ai"`, `name="ai_model" value="gpt-6-astra"`,
-		`name="scientific_name" type="text" required maxlength="200" value="Hoya carnosa"`,
-		`name="kc" type="text" inputmode="decimal" required value="0.4"`,
-		"Save species",
-	)
-	assertNotContains(t, review, "The AI was not sure")
-	assertNoExternalAssets(t, review)
-
-	if len(db.species) != 1 {
-		t.Fatalf("a draft must not write anything: %d species in the database", len(db.species))
+	if _, saved := db.species["hoya-carnosa"]; saved {
+		t.Fatal("saved before the draft finished")
 	}
 
-	// A finished job answers a poll with a refresh, so the page swaps to the review.
-	req2 := httptest.NewRequest(http.MethodGet, path, nil)
-	req2.Header.Set("HX-Request", "true")
-	done := httptest.NewRecorder()
-	mux.ServeHTTP(done, req2)
-	if done.Header().Get("HX-Refresh") != "true" {
-		t.Errorf("a finished draft should tell htmx to refresh, headers: %v", done.Header())
+	close(d.gate)
+	done := waitForDraft(t, mux, path)
+	assertStatus(t, done, http.StatusSeeOther)
+	if got, want := location(t, done), "/plants/new?species=hoya-carnosa&drafted=1"; got != want {
+		t.Errorf("redirect = %q, want %q", got, want)
+	}
+
+	sp, ok := db.species["hoya-carnosa"]
+	if !ok {
+		t.Fatal("a clean draft was not saved")
+	}
+	if sp.Origin != domain.OriginAI || sp.AIModel != "gpt-6-astra" || sp.AIDraftedAt == nil || !sp.AIDraftedAt.Equal(testNow) {
+		t.Errorf("provenance = %q/%q/%v, want ai/gpt-6-astra/%v", sp.Origin, sp.AIModel, sp.AIDraftedAt, testNow)
+	}
+	if sp.Kc != 0.4 || len(sp.Tasks) != 1 {
+		t.Errorf("saved species is not the draft: %+v", sp)
+	}
+
+	// A finished job answers htmx's poll by sending the page to the same place.
+	if got := htmxGET(t, mux, path).Header().Get("HX-Redirect"); got != "/plants/new?species=hoya-carnosa&drafted=1" {
+		t.Errorf("HX-Redirect = %q", got)
 	}
 }
 
-func TestReviewWarnsLoudlyWhenConfidenceIsLow(t *testing.T) {
+func htmxGET(t *testing.T, mux http.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// There is no confirmation step, so a low-confidence identification is saved
+// like any other clean draft; the plant form's note is the prompt to check it.
+func TestLowConfidenceDraftIsSavedToo(t *testing.T) {
 	d := &fakeDrafter{res: draftedResult(species.ConfidenceLow)}
-	_, _, mux := speciesUI(t, d)
-	path := location(t, startDraft(t, mux, askForm()))
-	rec := waitForDraft(t, mux, path)
-	assertContains(t, rec, "The AI was not sure which plant this is", `role="alert"`, "confidence <strong>low</strong>")
+	_, db, mux := speciesUI(t, d)
+	rec := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
+	assertStatus(t, rec, http.StatusSeeOther)
+	if _, ok := db.species["hoya-carnosa"]; !ok {
+		t.Fatal("a valid low-confidence draft was not saved")
+	}
 }
 
 func TestReviewShowsProblemsThatSurvivedTheCorrection(t *testing.T) {
@@ -230,7 +239,7 @@ func TestReviewShowsProblemsThatSurvivedTheCorrection(t *testing.T) {
 	res.Problems = catalog.Validate(res.Species)
 	res.Retried = true
 	d := &fakeDrafter{res: res}
-	_, _, mux := speciesUI(t, d)
+	_, db, mux := speciesUI(t, d)
 
 	rec := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
 	assertStatus(t, rec, http.StatusOK)
@@ -239,8 +248,12 @@ func TestReviewShowsProblemsThatSurvivedTheCorrection(t *testing.T) {
 		"scheduled from the reservoir model",
 		"corrected once",
 	)
-	// The rejected values are still in the form for a person to fix by hand.
-	assertContains(t, rec, `value="3.5"`)
+	// The rejected values are still in the form for a person to fix by hand,
+	// and the page says why it is being shown at all.
+	assertContains(t, rec, `value="3.5"`, "could not be saved automatically", `name="origin" value="ai"`)
+	if _, saved := db.species["hoya-carnosa"]; saved {
+		t.Error("a draft that failed validation was saved")
+	}
 }
 
 func TestDraftFailureShowsAFriendlyMessageNotTheError(t *testing.T) {
@@ -369,12 +382,17 @@ func bookkeeping(rec *httptest.ResponseRecorder) url.Values {
 	return v
 }
 
-// TestReviewedDraftIsSavedAsAI drives the whole loop as a browser would: the
-// review page's own hidden fields go back with the person's reviewed values.
-func TestReviewedDraftIsSavedAsAI(t *testing.T) {
-	d := &fakeDrafter{res: draftedResult(species.ConfidenceHigh)}
+// TestFixedDraftIsSavedAsAI drives the one path that still has a form: a draft
+// whose problems survived the correction round. The page's own hidden fields go
+// back with the person's fixed values, and the species is stored as AI-drafted.
+func TestFixedDraftIsSavedAsAI(t *testing.T) {
+	res := draftedResult(species.ConfidenceHigh)
+	res.Species.Kc = 3.5
+	res.Problems = catalog.Validate(res.Species)
+	d := &fakeDrafter{res: res}
 	_, db, mux := speciesUI(t, d)
 	review := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
+	assertStatus(t, review, http.StatusOK)
 
 	form := manualSpeciesForm()
 	form.Set("scientific_name", "Hoya carnosa")
@@ -388,6 +406,56 @@ func TestReviewedDraftIsSavedAsAI(t *testing.T) {
 	if sp.Origin != domain.OriginAI || sp.AIModel != "gpt-6-astra" || sp.AIDraftedAt == nil || !sp.AIDraftedAt.Equal(testNow) {
 		t.Errorf("provenance = %q/%q/%v, want ai/gpt-6-astra/%v", sp.Origin, sp.AIModel, sp.AIDraftedAt, testNow)
 	}
+}
+
+func TestDraftOfAnExistingSpeciesChangesNothing(t *testing.T) {
+	res := draftedResult(species.ConfidenceHigh)
+	res.Species.Slug = "monstera-deliciosa" // the fixture species
+	res.Species.CommonName = "Impostor"
+	d := &fakeDrafter{res: res}
+	_, db, mux := speciesUI(t, d)
+
+	rec := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
+	assertStatus(t, rec, http.StatusOK)
+	assertContains(t, rec, "You already have", "Swiss cheese plant", "nothing was added or changed",
+		`href="/plants/new?species=monstera-deliciosa"`, `href="/species/monstera-deliciosa/edit"`)
+	if got := db.species["monstera-deliciosa"].CommonName; got != "Swiss cheese plant" {
+		t.Errorf("an existing species was overwritten: %q", got)
+	}
+}
+
+// failingCreate is a catalog whose inserts fail, to prove a storage error is
+// reported as one and not blamed on the drafting service.
+type failingCreate struct{ memSpecies }
+
+func (failingCreate) Create(context.Context, domain.Species) error {
+	return errors.New("connection reset by peer")
+}
+
+func TestDraftThatCannotBeSavedSaysSo(t *testing.T) {
+	d := &fakeDrafter{res: draftedResult(species.ConfidenceHigh)}
+	_, _, mux := testUI(t, func(db *memDB, s *Server) {
+		s.Drafter = d
+		s.Species = failingCreate{memSpecies{db}}
+	})
+	rec := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
+	assertStatus(t, rec, http.StatusOK)
+	assertContains(t, rec, "drafted but could not be saved", "Fill it in by hand instead")
+	assertNotContains(t, rec, "connection reset", "could not be reached")
+}
+
+func TestPlantFormNotesASpeciesSavedWithoutReview(t *testing.T) {
+	_, db, mux := speciesUI(t, nil)
+	db.addSpecies(draftedResult(species.ConfidenceHigh).Species)
+
+	rec := doGET(t, mux, "/plants/new?species=hoya-carnosa&drafted=1")
+	assertStatus(t, rec, http.StatusOK)
+	assertContains(t, rec, "saved without review", "Wax plant", "gpt-6-astra",
+		`href="/species/hoya-carnosa/edit"`, `value="hoya-carnosa" selected`)
+
+	// Only when arriving from a draft, and only for a species an AI actually wrote.
+	assertNotContains(t, doGET(t, mux, "/plants/new?species=hoya-carnosa"), "saved without review")
+	assertNotContains(t, doGET(t, mux, "/plants/new?species=monstera-deliciosa&drafted=1"), "saved without review")
 }
 
 // html2 undoes the one escaping html/template applies to the values we round-trip.
@@ -722,12 +790,12 @@ func TestRateLimiterRefills(t *testing.T) {
 
 func TestDraftJobsExpire(t *testing.T) {
 	store := newDraftStore()
-	d := &fakeDrafter{res: draftedResult(species.ConfidenceHigh)}
-	old, _ := store.start(testNow, d, species.Request{Name: "a"})
+	run := func(context.Context) draftOutcome { return draftOutcome{State: draftFailed, Err: errors.New("x")} }
+	old, _ := store.start(testNow, species.Request{Name: "a"}, run)
 	if _, ok := store.get(old); !ok {
 		t.Fatal("a fresh job should be findable")
 	}
-	if _, err := store.start(testNow.Add(draftTTL+time.Minute), d, species.Request{Name: "b"}); err != nil {
+	if _, err := store.start(testNow.Add(draftTTL+time.Minute), species.Request{Name: "b"}, run); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := store.get(old); ok {

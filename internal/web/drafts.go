@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BartolottiLuca/plantation/internal/domain"
 	"github.com/BartolottiLuca/plantation/internal/species"
 )
 
@@ -27,7 +28,14 @@ type draftState int
 
 const (
 	draftPending draftState = iota
-	draftDone
+	// draftSaved: the draft validated and is in the catalog.
+	draftSaved
+	// draftNeedsReview: problems survived the model's correction round, so the
+	// draft cannot be stored as it is and a person has to fix it on the form.
+	draftNeedsReview
+	// draftExists: a species with the drafted slug is already in the catalog.
+	// Nothing is overwritten.
+	draftExists
 	draftFailed
 )
 
@@ -35,12 +43,21 @@ const (
 // Cloudflare tunnel waits on a silent request, so the request that starts it
 // returns at once and the page polls the job instead.
 type draftJob struct {
-	ID      string
-	State   draftState
-	Request species.Request
-	Result  species.Result
-	Err     error
-	Started time.Time
+	ID       string
+	State    draftState
+	Request  species.Request
+	Result   species.Result
+	Err      error
+	Existing *domain.Species // set for draftExists
+	Started  time.Time
+}
+
+// draftOutcome is what a finished run reports back to the store.
+type draftOutcome struct {
+	State    draftState
+	Result   species.Result
+	Err      error
+	Existing *domain.Species
 }
 
 type draftStore struct {
@@ -60,8 +77,10 @@ func newDraftID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// start registers a pending job and runs the draft in the background.
-func (d *draftStore) start(now time.Time, drafter species.Drafter, req species.Request) (string, error) {
+// start registers a pending job and runs it in the background. run does the
+// whole job — drafting and, when the draft is clean, saving it — because the
+// request that started it has already returned and nobody is waiting to save.
+func (d *draftStore) start(now time.Time, req species.Request, run func(context.Context) draftOutcome) (string, error) {
 	id, err := newDraftID()
 	if err != nil {
 		return "", err
@@ -78,32 +97,27 @@ func (d *draftStore) start(now time.Time, drafter species.Drafter, req species.R
 	d.mu.Unlock()
 
 	go func() {
-		// The request that started this has already returned, so the draft gets its
+		// The request that started this has already returned, so the job gets its
 		// own context; the drafter applies its own overall timeout.
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("species draft panicked", "panic", fmt.Sprint(r))
-				d.finish(id, species.Result{}, fmt.Errorf("drafting panicked: %v", r))
+				d.finish(id, draftOutcome{State: draftFailed, Err: fmt.Errorf("drafting panicked: %v", r)})
 			}
 		}()
-		res, err := drafter.Draft(context.Background(), req)
-		d.finish(id, res, err)
+		d.finish(id, run(context.Background()))
 	}()
 	return id, nil
 }
 
-func (d *draftStore) finish(id string, res species.Result, err error) {
+func (d *draftStore) finish(id string, out draftOutcome) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	job, ok := d.jobs[id]
 	if !ok {
 		return
 	}
-	job.Result, job.Err = res, err
-	job.State = draftDone
-	if err != nil {
-		job.State = draftFailed
-	}
+	job.State, job.Result, job.Err, job.Existing = out.State, out.Result, out.Err, out.Existing
 }
 
 // get returns a copy so a caller never races the goroutine that fills the job.

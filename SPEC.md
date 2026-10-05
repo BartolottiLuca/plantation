@@ -877,9 +877,9 @@ be usable at phone width.
 | `/plants/{id}/tasks/{slug}` | POST | task control: enable/disable, snooze until a date, override the interval — keyed on the same slug as above |
 | `/events/{id}/void` | POST | undo a logged event |
 | `/species` | GET | every species, with where its numbers came from |
-| `/species/new` | GET, POST | GET: describe a plant to draft (or the blank form when drafting is off, or `?manual=1`); POST: create a reviewed species — re-validated, never trusted from the draft |
-| `/species/draft` | POST | start a draft in the background and redirect to `/drafts/{id}`; rate limited, writes nothing |
-| `/drafts/{id}` | GET | the draft while it runs (polled by htmx), then the review form, or the reason it failed |
+| `/species/new` | GET, POST | GET: describe a plant to draft (or the blank form when drafting is off, or `?manual=1`); POST: create a species from the form — re-validated, never trusted from a draft |
+| `/species/draft` | POST | start a draft in the background and redirect to `/drafts/{id}`; rate limited. A clean draft is saved by the job itself |
+| `/drafts/{id}` | GET | the draft while it runs (polled by htmx); then a redirect to `/plants/new?species={slug}&drafted=1` once saved, the form when problems survived, a note when the species already exists, or the reason it failed |
 | `/species/{slug}/edit` | GET, POST | edit a species; the slug is identity and comes from the path |
 | `/settings/tado` | GET, POST | start and complete the device flow |
 | `/settings/diagnostics` | GET | weather staleness, last digest, token countdown, catalog version |
@@ -997,7 +997,7 @@ unsealed from a SealedSecret in the cluster overlay). Coordinates may live in th
 A person adding a plant whose species is not in the catalog can describe it and have an
 OpenAI model draft the record, through the Responses API. This is the only use of a model
 in the app. The provider sits behind the `species.Drafter` interface; the prompt, schema,
-validation and review flow below do not depend on it.
+validation and storage flow below do not depend on it.
 
 **What the model is asked for, and what it is not.** The form collects identity: a name, optional label text and
 optional notes. It does not ask where the plant will live — that is set on each plant, and
@@ -1015,15 +1015,23 @@ scientific name in kebab-case, derived in code.
 **One gate.** A draft is converted to a `domain.Species` and run through `catalog.Validate`,
 the same function a hand-typed species passes. If it fails, the model is shown the errors
 and gets one correction. A second failure is not retried: the draft is returned with its
-problems and shown on the review form beside the fields they belong to. Declarable task
+problems and shown on the species form beside the fields they belong to. Declarable task
 kinds exclude `water` (scheduled from the reservoir model) and `inspect` (log-only).
 
-**A human reviews every draft.** Drafting writes nothing. The result is an editable form
-that says plainly it was drafted by a model, shows the identification and confidence (a low
-confidence gets a warning), lists alternatives, and only `POST /species/new` stores
-anything — re-validating what was submitted rather than trusting the draft. A draft is
-stored with `origin = 'ai'` only if the submission carries a complete claim (`ai_model` and a
-parseable timestamp); anything else is stored as `manual`.
+**A clean draft is saved without confirmation.** This is a deliberate trade: the person
+gives up the review step for speed, so a confidently wrong identification or a
+plausible-but-wrong constant is stored as drafted. The background job stores a draft the
+moment it passes `catalog.Validate`, with `origin = 'ai'`, `ai_model` and `ai_drafted_at`,
+whatever the model's confidence. The person lands on the add-plant form with the species
+selected and a note that it was saved without review, linking to its edit page — the only
+prompt left to check the numbers. Two cases still stop short of saving:
+
+- problems that survived the correction round: the draft cannot be stored, so it is shown
+  on the species form beside its errors, and `POST /species/new` stores the fixed version,
+  re-validating what was submitted. It is stored as `ai` only if the submission carries a
+  complete claim (`ai_model` and a parseable timestamp); anything else is `manual`;
+- a slug that already exists: nothing is overwritten, and the page offers the existing
+  species instead.
 
 **Interval recompute.** The intervals derive from kc, mad and substrate. If a person changes
 those and leaves the intervals as they were rendered, the server recomputes them and shows
@@ -1042,7 +1050,7 @@ than as a rate limit, because waiting does not fix it.
 
 **Request shape.** One call to the Responses API with the frozen prompt as `instructions`,
 the form's fields as the user input, and a strict `json_schema` text format. `store` is
-false: the record is reviewed and stored here, and the provider has no reason to keep the
+false: the record is validated and stored here, and the provider has no reason to keep the
 conversation. The correction round replays the first answer verbatim as an assistant turn
 rather than relying on server-side conversation state.
 

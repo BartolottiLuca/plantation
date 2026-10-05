@@ -1,7 +1,7 @@
 {{define "title"}}Add a species · Plantation{{end}}
 {{define "content"}}
 <h1>Add a species</h1>
-<p>Describe the plant and an AI model will draft its record — how thirsty it is, when it rests, what care it needs. Nothing is saved until you have reviewed it. Whether it lives indoors or out is set on each plant, so one species serves both.</p>
+<p>Describe the plant and an AI model will draft its record — how thirsty it is, when it rests, what care it needs. It is saved straight away and you can check or edit it afterwards. Whether it lives indoors or out is set on each plant, so one species serves both.</p>
 {{if .Error}}<p class="warn" role="alert">{{.Error}}</p>{{end}}
 <form class="plant-form" method="post" action="/species/draft">
   <label for="name">What is it called?
