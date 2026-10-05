@@ -18,7 +18,7 @@ import (
 	"github.com/BartolottiLuca/plantation/internal/species"
 )
 
-// fakeDrafter stands in for the Claude client. If gate is set, Draft blocks on
+// fakeDrafter stands in for the model client. If gate is set, Draft blocks on
 // it, which lets a test look at a draft while it is still pending.
 type fakeDrafter struct {
 	mu    sync.Mutex
@@ -67,8 +67,8 @@ func draftedResult(conf species.Confidence) species.Result {
 	}
 	sp := species.ToSpecies(p)
 	at := testNow
-	sp.Origin, sp.AIModel, sp.AIDraftedAt = domain.OriginAI, "claude-opus-5", &at
-	return species.Result{Proposal: p, Species: sp, Model: "claude-opus-5", Problems: catalog.Validate(sp)}
+	sp.Origin, sp.AIModel, sp.AIDraftedAt = domain.OriginAI, "gpt-6-astra", &at
+	return species.Result{Proposal: p, Species: sp, Model: "gpt-6-astra", Problems: catalog.Validate(sp)}
 }
 
 func speciesUI(t *testing.T, d species.Drafter) (*Server, *memDB, *http.ServeMux) {
@@ -138,7 +138,7 @@ func TestNewSpeciesOffersDraftingWhenEnabled(t *testing.T) {
 	rec := doGET(t, mux, "/species/new")
 	assertStatus(t, rec, http.StatusOK)
 	assertNoIndex(t, rec)
-	assertContains(t, rec, "Draft with Claude", `action="/species/draft"`, "/species/new?manual=1")
+	assertContains(t, rec, "Draft with AI", `action="/species/draft"`, "/species/new?manual=1")
 	assertNoExternalAssets(t, rec)
 }
 
@@ -149,7 +149,7 @@ func TestNewSpeciesFallsBackToManualFormWhenDisabled(t *testing.T) {
 			rec := doGET(t, mux, "/species/new")
 			assertStatus(t, rec, http.StatusOK)
 			assertContains(t, rec, "not set up on this server", `action="/species/new"`, `name="kc"`)
-			assertNotContains(t, rec, "Draft with Claude")
+			assertNotContains(t, rec, "Draft with AI")
 		})
 	}
 }
@@ -177,7 +177,7 @@ func TestDraftLifecyclePendingThenReview(t *testing.T) {
 	// Still thinking: a full page that polls itself, and a bare fragment for htmx.
 	pending := doGET(t, mux, path)
 	assertStatus(t, pending, http.StatusOK)
-	assertContains(t, pending, `hx-trigger="every 2s"`, "Claude is working on wax plant")
+	assertContains(t, pending, `hx-trigger="every 2s"`, "The AI is working on wax plant")
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("HX-Request", "true")
 	frag := httptest.NewRecorder()
@@ -190,15 +190,15 @@ func TestDraftLifecyclePendingThenReview(t *testing.T) {
 	review := waitForDraft(t, mux, path)
 	assertStatus(t, review, http.StatusOK)
 	assertContains(t, review,
-		"Drafted by Claude", "not curated data", "Check every number",
+		"Drafted by AI", "not curated data", "Check every number",
 		"Identified as", "Hoya carnosa", "confidence <strong>high</strong>",
 		"Draft Hoya kerrii instead",
-		`name="origin" value="ai"`, `name="ai_model" value="claude-opus-5"`,
+		`name="origin" value="ai"`, `name="ai_model" value="gpt-6-astra"`,
 		`name="scientific_name" type="text" required maxlength="200" value="Hoya carnosa"`,
 		`name="kc" type="text" inputmode="decimal" required value="0.4"`,
 		"Save species",
 	)
-	assertNotContains(t, review, "Claude was not sure")
+	assertNotContains(t, review, "The AI was not sure")
 	assertNoExternalAssets(t, review)
 
 	if len(db.species) != 1 {
@@ -220,7 +220,7 @@ func TestReviewWarnsLoudlyWhenConfidenceIsLow(t *testing.T) {
 	_, _, mux := speciesUI(t, d)
 	path := location(t, startDraft(t, mux, askForm()))
 	rec := waitForDraft(t, mux, path)
-	assertContains(t, rec, "Claude was not sure which plant this is", `role="alert"`, "confidence <strong>low</strong>")
+	assertContains(t, rec, "The AI was not sure which plant this is", `role="alert"`, "confidence <strong>low</strong>")
 }
 
 func TestReviewShowsProblemsThatSurvivedTheCorrection(t *testing.T) {
@@ -250,9 +250,10 @@ func TestDraftFailureShowsAFriendlyMessageNotTheError(t *testing.T) {
 		want string
 	}{
 		{"rate limited", species.ErrRateLimited, "rate limiting"},
+		{"out of credit", species.ErrNoQuota, "run out of credit"},
 		{"refused", species.ErrRefused, "declined"},
 		{"truncated", species.ErrTruncated, "cut off"},
-		{"anything else", errors.New(`POST "https://api.anthropic.com/v1/messages": 401 sk-ant-secret-key`), "could not be reached"},
+		{"anything else", errors.New(`POST "https://api.openai.com/v1/responses": 401 sk-secret-key-value`), "could not be reached"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -261,7 +262,7 @@ func TestDraftFailureShowsAFriendlyMessageNotTheError(t *testing.T) {
 			rec := waitForDraft(t, mux, location(t, startDraft(t, mux, askForm())))
 			assertStatus(t, rec, http.StatusOK)
 			assertContains(t, rec, "Could not draft that", tt.want, "Fill it in by hand instead", "manual=1")
-			assertNotContains(t, rec, "sk-ant", "api.anthropic.com", "401")
+			assertNotContains(t, rec, "sk-secret", "api.openai.com", "401")
 		})
 	}
 }
@@ -384,8 +385,8 @@ func TestReviewedDraftIsSavedAsAI(t *testing.T) {
 	assertStatus(t, rec, http.StatusSeeOther)
 
 	sp := db.species["hoya-carnosa"]
-	if sp.Origin != domain.OriginAI || sp.AIModel != "claude-opus-5" || sp.AIDraftedAt == nil || !sp.AIDraftedAt.Equal(testNow) {
-		t.Errorf("provenance = %q/%q/%v, want ai/claude-opus-5/%v", sp.Origin, sp.AIModel, sp.AIDraftedAt, testNow)
+	if sp.Origin != domain.OriginAI || sp.AIModel != "gpt-6-astra" || sp.AIDraftedAt == nil || !sp.AIDraftedAt.Equal(testNow) {
+		t.Errorf("provenance = %q/%q/%v, want ai/gpt-6-astra/%v", sp.Origin, sp.AIModel, sp.AIDraftedAt, testNow)
 	}
 }
 
@@ -401,10 +402,10 @@ func TestProvenanceCannotBeForged(t *testing.T) {
 	}{
 		{"claims seed", func(v url.Values) { v.Set("origin", "seed") }},
 		{"claims ai without a model", func(v url.Values) { v.Set("origin", "ai"); v.Set("ai_drafted_at", "2026-03-03T10:00:00Z") }},
-		{"claims ai without a timestamp", func(v url.Values) { v.Set("origin", "ai"); v.Set("ai_model", "claude-opus-5") }},
+		{"claims ai without a timestamp", func(v url.Values) { v.Set("origin", "ai"); v.Set("ai_model", "gpt-6-astra") }},
 		{"claims ai with a garbled timestamp", func(v url.Values) {
 			v.Set("origin", "ai")
-			v.Set("ai_model", "claude-opus-5")
+			v.Set("ai_model", "gpt-6-astra")
 			v.Set("ai_drafted_at", "yesterday")
 		}},
 	}
@@ -627,7 +628,7 @@ func TestSpeciesListShowsOrigins(t *testing.T) {
 	rec := doGET(t, mux, "/species")
 	assertStatus(t, rec, http.StatusOK)
 	assertNoIndex(t, rec)
-	assertContains(t, rec, "Drafted by Claude", "Added by hand", "Retired", "/species/hoya-carnosa/edit", "3 care tasks")
+	assertContains(t, rec, "Drafted by AI", "Added by hand", "Retired", "/species/hoya-carnosa/edit", "3 care tasks")
 	assertContains(t, doGET(t, mux, "/"), `href="/species"`)
 }
 

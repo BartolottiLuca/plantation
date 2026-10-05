@@ -13,7 +13,7 @@
 
 {{define "draft-pending"}}
 <div id="draft-status" hx-get="/drafts/{{.ID}}" hx-trigger="every 2s" hx-swap="outerHTML">
-  <p class="empty" role="status">Claude is working on {{.Name}}. This usually takes under a minute, and the page updates by itself.</p>
+  <p class="empty" role="status">The AI is working on {{.Name}}. This usually takes under a minute, and the page updates by itself.</p>
   <p class="meta"><a href="/drafts/{{.ID}}">Check now</a></p>
 </div>
 {{end}}

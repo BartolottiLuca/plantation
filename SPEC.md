@@ -40,7 +40,7 @@ internal/store                pgxpool, embedded migrations, repositories
 internal/weather              WeatherProvider + openmeteo client + cache repo
 internal/climate              IndoorClimateProvider + tado auth and rooms
 internal/notify               Notifier + discord client + outbox
-internal/species              Drafter + Claude client: drafts a species record (§16)
+internal/species              Drafter + OpenAI client: drafts a species record (§16)
 internal/web                  handlers, templates, embedded static assets
 internal/scheduler            the single ticker loop
 deploy/chart                  Helm chart
@@ -909,18 +909,18 @@ an invalid value is a fatal startup error, never a silent default.
 | `PLANTATION_TADO_ENABLED` | no | `true` | false wires `NoopClimate` |
 | `PLANTATION_DISCORD_WEBHOOK_URL` | no | — | absent wires `NoopNotifier` |
 | `PLANTATION_WRITE_TOKEN` | no | — | optional bearer on POST routes |
-| `PLANTATION_ANTHROPIC_API_KEY` | no | — | enables species drafting (§16); absent wires `NoopDrafter` and the species screens show the manual form. Never logged. |
-| `PLANTATION_ANTHROPIC_MODEL` | no | `claude-opus-5` | model id for drafting; a malformed value is a fatal startup error |
+| `PLANTATION_OPENAI_API_KEY` | no | — | enables species drafting (§16); absent wires `NoopDrafter` and the species screens show the manual form. Never logged. |
+| `PLANTATION_OPENAI_MODEL` | no | `gpt-6-astra` | model id for drafting; a malformed value is a fatal startup error |
 | `PLANTATION_LOG_LEVEL` | no | `info` | `debug\|info\|warn\|error` |
 
-The Discord webhook URL, Tado tokens and Anthropic API key are supplied on the cluster and
+The Discord webhook URL, Tado tokens and OpenAI API key are supplied on the cluster and
 must never be committed to git. The API key reaches the pod as a Secret (in practice
 unsealed from a SealedSecret in the cluster overlay). Coordinates may live in the cluster Helm overlay.
 
 ## 13. Conventions
 
 - Structured logging with `log/slog`, JSON handler, level from config. Log keys are
-  `snake_case`. **Never log** the Discord webhook URL, Tado tokens, the Anthropic API key, or
+  `snake_case`. **Never log** the Discord webhook URL, Tado tokens, the OpenAI API key, or
   coordinates.
 - Errors wrap with `fmt.Errorf("doing x: %w", err)`. Sentinel errors are exported only
   where callers branch on them. Providers return typed staleness/status data rather than
@@ -994,8 +994,10 @@ unsealed from a SealedSecret in the cluster overlay). Coordinates may live in th
 
 ## 16. Species drafting
 
-A person adding a plant whose species is not in the catalog can describe it and have Claude
-draft the record. This is the only use of a model in the app.
+A person adding a plant whose species is not in the catalog can describe it and have an
+OpenAI model draft the record, through the Responses API. This is the only use of a model
+in the app. The provider sits behind the `species.Drafter` interface; the prompt, schema,
+validation and review flow below do not depend on it.
 
 **What the model is asked for, and what it is not.** The form collects identity: a name, optional label text and
 optional notes. It does not ask where the plant will live — that is set on each plant, and
@@ -1034,9 +1036,15 @@ request, so `POST /species/draft` returns at once and `/drafts/{id}` is polled. 
 memory (§14: one replica) and are dropped after 30 minutes; a restart loses only in-flight
 drafts.
 
-**Cost control.** An in-process token bucket allows 10 drafts an hour. The call uses
-structured outputs (`output_config.format`), not a forced tool call: they work with
-thinking, and forced tool use is rejected by some models.
+**Cost control.** An in-process token bucket allows 10 drafts an hour. An exhausted
+account (OpenAI's `insufficient_quota`, which arrives as a 429) is reported as such rather
+than as a rate limit, because waiting does not fix it.
+
+**Request shape.** One call to the Responses API with the frozen prompt as `instructions`,
+the form's fields as the user input, and a strict `json_schema` text format. `store` is
+false: the record is reviewed and stored here, and the provider has no reason to keep the
+conversation. The correction round replays the first answer verbatim as an assistant turn
+rather than relying on server-side conversation state.
 
 **Failure is never a 500.** No key, an expired key, a rate limit, a refusal, a truncated
 response or an unreachable API all end at a message and the manual form. Users are shown a

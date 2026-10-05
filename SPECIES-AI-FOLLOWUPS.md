@@ -6,13 +6,13 @@ option, then build it. Item 1 is cluster work and has no code change.
 
 ---
 
-## 1. Anthropic API key as a SealedSecret
+## 1. OpenAI API key as a SealedSecret
 
 **Where:** the cluster overlay repo, not this one. Nothing in this repo changes.
 
 **Context.** The chart already reads the key from an existing Secret
-(`deploy/chart/templates/deployment.yaml`, the `anthropic.*` block in
-`deploy/chart/values.yaml`). With `anthropic.existingSecretName` empty the app boots with
+(`deploy/chart/templates/deployment.yaml`, the `openai.*` block in
+`deploy/chart/values.yaml`). With `openai.existingSecretName` empty the app boots with
 drafting off and the species screens show the manual form, which is the state today.
 
 **What to do**
@@ -21,21 +21,21 @@ drafting off and the species screens show the manual form, which is the state to
    cluster's sealed-secrets controller, and keep only the sealed output:
 
    ```sh
-   read -rs ANTHROPIC_KEY
-   kubectl create secret generic plantation-anthropic -n plantation \
-     --from-literal=apiKey="$ANTHROPIC_KEY" --dry-run=client -o yaml \
-     | kubeseal --format yaml > plantation-anthropic.sealedsecret.yaml
-   unset ANTHROPIC_KEY
+   read -rs OPENAI_KEY
+   kubectl create secret generic plantation-openai -n plantation \
+     --from-literal=apiKey="$OPENAI_KEY" --dry-run=client -o yaml \
+     | kubeseal --format yaml > plantation-openai.sealedsecret.yaml
+   unset OPENAI_KEY
    ```
 
-2. Commit `plantation-anthropic.sealedsecret.yaml` to the overlay, and set in the overlay's
+2. Commit `plantation-openai.sealedsecret.yaml` to the overlay, and set in the overlay's
    values:
 
    ```yaml
-   anthropic:
-     existingSecretName: plantation-anthropic
+   openai:
+     existingSecretName: plantation-openai
      existingSecretKey: apiKey     # the default; shown for clarity
-     # model: claude-opus-5        # optional override (PLANTATION_ANTHROPIC_MODEL)
+     # model: gpt-6.1-sol          # optional override (PLANTATION_OPENAI_MODEL)
    ```
 
 3. Never commit the plain Secret, never paste the key into an issue or chat. A trailing
@@ -46,11 +46,11 @@ drafting off and the species screens show the manual form, which is the state to
 - The pod logs `"msg":"species drafting","enabled":true` at boot; that line is the
   confirmation the key arrived. The key itself is never logged. (The image is `scratch`,
   so there is no shell or `env` to `kubectl exec` into. To check the wiring without the
-  value, `kubectl -n plantation get deploy plantation -o jsonpath='{..env[?(@.name=="PLANTATION_ANTHROPIC_API_KEY")].valueFrom}'`
-  should name `plantation-anthropic` / `apiKey`.)
+  value, `kubectl -n plantation get deploy plantation -o jsonpath='{..env[?(@.name=="PLANTATION_OPENAI_API_KEY")].valueFrom}'`
+  should name `plantation-openai` / `apiKey`.)
 - One species drafted end to end through **Add → Add a species**, reviewed and saved.
 - The live smoke test passes once, run locally with the same key:
-  `PLANTATION_ANTHROPIC_API_KEY=... go test -tags smoke -run Live -v ./internal/species/`.
+  `PLANTATION_OPENAI_API_KEY=... go test -tags smoke -run Live -v ./internal/species/`.
   This is the first time the prompt and schema meet the real API; until it passes, treat
   drafting as unverified.
 
@@ -112,7 +112,7 @@ whenever weather is enabled.
   Make the assumption explicit rather than half-stated: one sentence in the prompt that
   *all* months, rest period and task months alike, are northern-hemisphere calendar months,
   and a line in `SPEC.md` §16. A few lines of change.
-- **B. Derive it at boot.** Pass the hemisphere into `species.NewAnthropicDrafter` from
+- **B. Derive it at boot.** Pass the hemisphere into `species.NewOpenAIDrafter` from
   `cmd/plantation`: the latitude sign when it is configured, otherwise "northern". The
   system prompt is built once per process, so it stays byte-stable and cacheable. Add a
   test that the prompt names the hemisphere it was given. Note that species already in the

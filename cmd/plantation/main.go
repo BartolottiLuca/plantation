@@ -245,10 +245,10 @@ func startRuntime(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, c
 	// Without a key the feature is off, not broken: the species screens fall
 	// back to the manual form.
 	var drafter species.Drafter = species.NoopDrafter{}
-	if cfg.AnthropicAPIKey != "" {
-		drafter = species.NewAnthropicDrafter(cfg.AnthropicAPIKey, cfg.AnthropicModel, clk, log)
+	if cfg.OpenAIAPIKey != "" {
+		drafter = species.NewOpenAIDrafter(cfg.OpenAIAPIKey, cfg.OpenAIModel, clk, log)
 	}
-	log.Info("species drafting", "enabled", cfg.AnthropicAPIKey != "")
+	log.Info("species drafting", "enabled", cfg.OpenAIAPIKey != "")
 
 	ui := web.NewServer(web.Server{
 		Drafter:     drafter,

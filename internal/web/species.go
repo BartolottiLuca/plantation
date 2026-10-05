@@ -106,7 +106,7 @@ func (s *Server) speciesList(w http.ResponseWriter, r *http.Request) {
 func originLabel(o domain.SpeciesOrigin) string {
 	switch o {
 	case domain.OriginAI:
-		return "Drafted by Claude"
+		return "Drafted by AI"
 	default:
 		return "Added by hand"
 	}
@@ -214,9 +214,11 @@ func (s *Server) draftGET(w http.ResponseWriter, r *http.Request) {
 func draftFailureMessage(err error) string {
 	switch {
 	case errors.Is(err, species.ErrRateLimited):
-		return "Claude is rate limiting requests right now. Try again in a minute, or fill the species in by hand."
+		return "The AI service is rate limiting requests right now. Try again in a minute, or fill the species in by hand."
+	case errors.Is(err, species.ErrNoQuota):
+		return "The AI account has run out of credit, so drafting is unavailable until it is topped up. Fill the species in by hand."
 	case errors.Is(err, species.ErrRefused):
-		return "Claude declined to draft this one. Try describing it differently, or fill the species in by hand."
+		return "The AI declined to draft this one. Try describing it differently, or fill the species in by hand."
 	case errors.Is(err, species.ErrTruncated):
 		return "The draft was cut off before it finished. Trying again usually works, or fill the species in by hand."
 	case errors.Is(err, species.ErrDisabled):

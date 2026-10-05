@@ -34,7 +34,7 @@ due today; 8 mm rain forecast Thursday at 80 %, so deferred to Friday."*
 
 Species live in the database, and a fresh one starts empty. You add them in the app
 (**Add → Add a species**), either by hand or by describing the plant
-and letting Claude draft the record for you to review before anything is saved — see
+and letting an OpenAI model draft the record for you to review before anything is saved — see
 [SPEC.md](SPEC.md) §16. Drafting is optional and off unless an API key is configured.
 
 ## Running locally
@@ -47,7 +47,7 @@ export PLANTATION_BASE_URL=http://localhost:8080
 go run ./cmd/plantation serve
 ```
 
-To try species drafting locally, add `export PLANTATION_ANTHROPIC_API_KEY=...`. Without it
+To try species drafting locally, add `export PLANTATION_OPENAI_API_KEY=...`. Without it
 the app runs as usual and the species screens show the manual form.
 
 Weather and Tado are off unless configured; with both disabled every plant schedules on
@@ -74,9 +74,9 @@ Cluster prerequisites:
   something in front of it is doing the authenticating. Without Access, every mutation is
   one misconfiguration away from being world-writable.
 
-Coordinates, hostname, the Discord webhook URL and the Anthropic API key are supplied on
+Coordinates, hostname, the Discord webhook URL and the OpenAI API key are supplied on
 the cluster and are never committed. The API key is normally a SealedSecret in the cluster
-overlay, referenced by `anthropic.existingSecretName`; see [deploy/README.md](deploy/README.md).
+overlay, referenced by `openai.existingSecretName`; see [deploy/README.md](deploy/README.md).
 
 The species catalog is only in the database, so the database backup is its recovery path:
 `backup.enabled` is off by default in the chart, so turn it on in the overlay.

@@ -22,7 +22,7 @@ placeholders.
 | Latitude / longitude | `config.latitude` / `config.longitude` | Required only if `config.weatherEnabled: true` (the default); the chart refuses to render otherwise |
 | Discord webhook URL | `discord.existingSecretName` / `discord.existingSecretKey` | Name/key of a Secret you create yourself, e.g. `kubectl create secret generic plantation-discord --from-literal=webhookUrl=...`; empty name disables Discord |
 | Write token (optional) | `writeToken.existingSecretName` / `writeToken.existingSecretKey` | Same pattern; optional bearer token required on POST routes |
-| Claude API key (optional) | `anthropic.existingSecretName` / `anthropic.existingSecretKey` | Enables drafting new species with Claude. Name/key of a Secret — in practice the one a SealedSecret in your cluster overlay unseals to (`kubeseal` a Secret holding `apiKey`); empty name disables drafting and the species screens fall back to the manual form. `anthropic.model` optionally overrides the model |
+| OpenAI API key (optional) | `openai.existingSecretName` / `openai.existingSecretKey` | Enables drafting new species with an OpenAI model. Name/key of a Secret — in practice the one a SealedSecret in your cluster overlay unseals to (`kubeseal` a Secret holding `apiKey`); empty name disables drafting and the species screens fall back to the manual form. `openai.model` optionally overrides the model |
 | ArgoCD git repo URL | `argocd/application.yaml` → `spec.source.repoURL` | Never committed; fill in on the cluster's copy of this manifest |
 | External database DSN (only if `postgresql.enabled: false`) | `externalDatabase.existingSecretName` / `externalDatabase.existingSecretKey` | Secret must contain a full `PLANTATION_DATABASE_URL`-compatible DSN |
 

@@ -14,20 +14,20 @@ import (
 	"github.com/BartolottiLuca/plantation/internal/catalog"
 )
 
-// TestDraftLiveSmoke calls the real Claude API and spends real money (a few
+// TestDraftLiveSmoke calls the real OpenAI API and spends real money (a few
 // cents). It is excluded from normal runs by the smoke build tag; run it with
 //
-//	PLANTATION_ANTHROPIC_API_KEY=... go test -tags smoke -run Live -v ./internal/species/
+//	PLANTATION_OPENAI_API_KEY=... go test -tags smoke -run Live -v ./internal/species/
 //
 // It is the only test that proves the request shape, the schema and the
 // prompt are accepted by the live API.
 func TestDraftLiveSmoke(t *testing.T) {
-	key := os.Getenv("PLANTATION_ANTHROPIC_API_KEY")
+	key := os.Getenv("PLANTATION_OPENAI_API_KEY")
 	if key == "" {
-		t.Skip("PLANTATION_ANTHROPIC_API_KEY unset")
+		t.Skip("PLANTATION_OPENAI_API_KEY unset")
 	}
-	model := os.Getenv("PLANTATION_ANTHROPIC_MODEL")
-	d := NewAnthropicDrafter(key, model, &care.NoopClock{Instant: time.Now()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	model := os.Getenv("PLANTATION_OPENAI_MODEL")
+	d := NewOpenAIDrafter(key, model, &care.NoopClock{Instant: time.Now()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), draftTimeout)
 	defer cancel()

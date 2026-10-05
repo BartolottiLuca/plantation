@@ -24,6 +24,9 @@ var (
 	// ErrRateLimited means the API rejected the request for rate limiting even
 	// after the client's own retries.
 	ErrRateLimited = errors.New("species drafting is rate limited")
+	// ErrNoQuota means the API account has run out of credit. Retrying does not
+	// help; someone has to top it up.
+	ErrNoQuota = errors.New("the drafting account has no quota left")
 	// ErrRefused means the model declined to produce a record.
 	ErrRefused = errors.New("the model declined to draft this species")
 	// ErrTruncated means the response hit its token cap before the record was complete.

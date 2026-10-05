@@ -51,15 +51,15 @@ discord:
 writeToken:
   existingSecretName: ""
   existingSecretKey: "writeToken"
-# Claude API key for drafting new species (PLANTATION_ANTHROPIC_API_KEY). Same
+# OpenAI API key for drafting new species (PLANTATION_OPENAI_API_KEY). Same
 # existingSecret pattern as discord above, and just as out-of-band: in the cluster
 # overlay this Secret is normally produced by a SealedSecret, never committed here.
 # Empty existingSecretName disables drafting: the species screens fall back to the
 # manual form and the app boots exactly as it did without the feature.
-anthropic:
+openai:
   existingSecretName: ""
   existingSecretKey: "apiKey"
-  # Optional model override (PLANTATION_ANTHROPIC_MODEL). Empty uses the app's default.
+  # Optional model override (PLANTATION_OPENAI_MODEL). Empty uses the app's default.
   model: ""
 ingress:
   enabled: false

@@ -1,7 +1,7 @@
 {{define "title"}}Add a species · Plantation{{end}}
 {{define "content"}}
 <h1>Add a species</h1>
-<p>Describe the plant and Claude will draft its record — how thirsty it is, when it rests, what care it needs. Nothing is saved until you have reviewed it. Whether it lives indoors or out is set on each plant, so one species serves both.</p>
+<p>Describe the plant and an AI model will draft its record — how thirsty it is, when it rests, what care it needs. Nothing is saved until you have reviewed it. Whether it lives indoors or out is set on each plant, so one species serves both.</p>
 {{if .Error}}<p class="warn" role="alert">{{.Error}}</p>{{end}}
 <form class="plant-form" method="post" action="/species/draft">
   <label for="name">What is it called?
@@ -16,7 +16,7 @@
     <textarea id="notes" name="notes" rows="3" maxlength="1000" placeholder="leaves, size, where you got it"></textarea>
   </label>
 
-  <button type="submit">Draft with Claude</button>
+  <button type="submit">Draft with AI</button>
 </form>
 <p class="meta">Prefer to enter everything yourself? <a href="/species/new?manual=1">Fill it in by hand</a>.</p>
 {{end}}

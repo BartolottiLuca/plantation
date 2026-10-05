@@ -175,51 +175,51 @@ func TestLoadResolvesLocationOnce(t *testing.T) {
 	}
 }
 
-func TestLoadAnthropicIsOptional(t *testing.T) {
+func TestLoadOpenAIIsOptional(t *testing.T) {
 	setRequired(t)
-	t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "")
-	t.Setenv("PLANTATION_ANTHROPIC_MODEL", "")
+	t.Setenv("PLANTATION_OPENAI_API_KEY", "")
+	t.Setenv("PLANTATION_OPENAI_MODEL", "")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("a boot without a key must work: %v", err)
 	}
-	if cfg.AnthropicAPIKey != "" || cfg.AnthropicModel != "" {
-		t.Fatalf("got key/model %q/%q, want both empty", cfg.AnthropicAPIKey, cfg.AnthropicModel)
+	if cfg.OpenAIAPIKey != "" || cfg.OpenAIModel != "" {
+		t.Fatalf("got key/model %q/%q, want both empty", cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	}
 }
 
-func TestLoadAnthropicKeyAndModel(t *testing.T) {
+func TestLoadOpenAIKeyAndModel(t *testing.T) {
 	setRequired(t)
-	t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "  sk-ant-test-key\n")
-	t.Setenv("PLANTATION_ANTHROPIC_MODEL", "claude-sonnet-5")
+	t.Setenv("PLANTATION_OPENAI_API_KEY", "  sk-test-key\n")
+	t.Setenv("PLANTATION_OPENAI_MODEL", "gpt-6.1-sol")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.AnthropicAPIKey != "sk-ant-test-key" {
-		t.Fatalf("key = %q, want it trimmed (a sealed secret often ends in a newline)", cfg.AnthropicAPIKey)
+	if cfg.OpenAIAPIKey != "sk-test-key" {
+		t.Fatalf("key = %q, want it trimmed (a sealed secret often ends in a newline)", cfg.OpenAIAPIKey)
 	}
-	if cfg.AnthropicModel != "claude-sonnet-5" {
-		t.Fatalf("model = %q", cfg.AnthropicModel)
+	if cfg.OpenAIModel != "gpt-6.1-sol" {
+		t.Fatalf("model = %q", cfg.OpenAIModel)
 	}
 }
 
 func TestLoadRejectsAMangledModelWithoutEchoingTheKey(t *testing.T) {
-	for _, bad := range []string{"claude opus 5", `"claude-opus-5"`, "-claude", "claude;rm"} {
+	for _, bad := range []string{"gpt 6 astra", `"gpt-6-astra"`, "-gpt", "gpt;rm"} {
 		setRequired(t)
-		t.Setenv("PLANTATION_ANTHROPIC_API_KEY", "sk-ant-must-not-leak")
-		t.Setenv("PLANTATION_ANTHROPIC_MODEL", bad)
+		t.Setenv("PLANTATION_OPENAI_API_KEY", "sk-must-not-leak")
+		t.Setenv("PLANTATION_OPENAI_MODEL", bad)
 
 		_, err := Load()
 		if err == nil {
 			t.Fatalf("model %q accepted", bad)
 		}
-		if !strings.Contains(err.Error(), "PLANTATION_ANTHROPIC_MODEL") {
+		if !strings.Contains(err.Error(), "PLANTATION_OPENAI_MODEL") {
 			t.Errorf("model %q: error %q does not name the variable", bad, err)
 		}
-		if strings.Contains(err.Error(), "sk-ant") {
+		if strings.Contains(err.Error(), "sk-must-not-leak") {
 			t.Errorf("error leaks the API key: %q", err)
 		}
 	}

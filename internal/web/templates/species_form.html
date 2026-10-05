@@ -4,10 +4,10 @@
 
 {{with .Draft}}
 <section class="draft-note" aria-labelledby="draft-heading">
-  <h2 id="draft-heading">Drafted by Claude</h2>
+  <h2 id="draft-heading">Drafted by AI</h2>
   <p>These values are a draft from {{.Model}}, not curated data. Check every number before saving — a plausible-looking wrong value here becomes wrong watering dates for the plant.</p>
   <p>Identified as <strong>{{.IdentifiedAs}}</strong> — confidence <strong>{{.Confidence}}</strong>.</p>
-  {{if .LowConfid}}<p class="warn" role="alert">Claude was not sure which plant this is. Look at the name and the constants closely, or try one of the alternatives.</p>{{end}}
+  {{if .LowConfid}}<p class="warn" role="alert">The AI was not sure which plant this is. Look at the name and the constants closely, or try one of the alternatives.</p>{{end}}
   {{if .Retried}}<p class="meta">The first draft failed the app's checks and was corrected once.</p>{{end}}
   {{if .Alternatives}}
   <p class="meta">It could also be:</p>
@@ -26,7 +26,7 @@
 </section>
 {{end}}
 
-{{if .Disabled}}<p class="empty">Drafting with Claude is not set up on this server, so this is a blank form.</p>{{end}}
+{{if .Disabled}}<p class="empty">Drafting with AI is not set up on this server, so this is a blank form.</p>{{end}}
 
 {{with .Collision}}
 <p class="warn" role="alert">There is already a species with this slug: <strong>{{.CommonName}}</strong> ({{.ScientificName}}).
