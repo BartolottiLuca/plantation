@@ -1,11 +1,11 @@
 module github.com/BartolottiLuca/plantation
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/openai/openai-go/v3 v3.71.2
+	github.com/openai/openai-go/v3 v3.76.0
 )
 
 require (
@@ -17,6 +17,6 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
