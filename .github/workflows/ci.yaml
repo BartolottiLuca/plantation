@@ -73,7 +73,7 @@ jobs:
 
       - uses: azure/setup-helm@v5
         with:
-          version: v4.3.0
+          version: v4.3.1
 
       - name: helm lint
         run: helm lint deploy/chart
