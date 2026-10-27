@@ -1,26 +1,31 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "minimumReleaseAge": "7 days",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "minimumReleaseAge": "2 days",
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 0,
   "minimumReleaseAgeBehaviour": "timestamp-optional",
   "internalChecksFilter": "flexible",
   "prCreation": "immediate",
   "automergeStrategy": "squash",
   "postUpdateOptions": ["gomodTidy"],
   "semanticCommits": "enabled",
-  "semanticCommitType": "fix",
   "semanticCommitScope": "deps",
   "packageRules": [
     {
-      "description": "Automerge patch, minor, and digest once the release is a week old",
-      "matchUpdateTypes": ["patch", "minor", "digest"],
-      "automerge": true,
+      "description": "Always fix(deps) so a merge never cuts a plantation minor/major. Overrides config:recommended's chore type for non-Go deps.",
+      "matchPackageNames": ["*"],
       "semanticCommitType": "fix"
     },
     {
-      "description": "Majors stay manual. Always fix(deps) so a merge never cuts a plantation minor/major.",
-      "matchUpdateTypes": ["major", "replacement", "pin", "pinDigest", "lockFileMaintenance"],
-      "semanticCommitType": "fix"
+      "description": "Automerge patch, minor, and digest once the release is two days old. Majors stay manual.",
+      "matchUpdateTypes": ["patch", "minor", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Placeholder image in deploy/chart/values.yaml; the real repository is set out-of-band.",
+      "matchPackageNames": ["CHANGEME/plantation"],
+      "enabled": false
     }
   ]
 }
