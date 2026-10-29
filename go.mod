@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/openai/openai-go/v3 v3.88.0
+	github.com/openai/openai-go/v3 v3.90.0
 )
 
 require (
