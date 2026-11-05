@@ -79,6 +79,8 @@ postgresql:
   instances: 1
   storageSize: 5Gi
   storageClassName: ""
+  # CNPG imageName; empty uses the operator's default, which only moves with operator upgrades.
+  image: ""
 # Used only when postgresql.enabled is false. Must name a Secret already present
 # on the cluster containing a full PLANTATION_DATABASE_URL-compatible DSN under
 # the given key.

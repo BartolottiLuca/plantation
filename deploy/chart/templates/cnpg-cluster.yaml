@@ -14,6 +14,9 @@ metadata:
     {{- include "plantation.labels" . | nindent 4 }}
 spec:
   instances: {{ .Values.postgresql.instances }}
+  {{- with .Values.postgresql.image }}
+  imageName: {{ . | quote }}
+  {{- end }}
   bootstrap:
     initdb:
       database: plantation

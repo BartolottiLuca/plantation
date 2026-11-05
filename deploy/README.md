@@ -24,6 +24,7 @@ placeholders.
 | Write token (optional) | `writeToken.existingSecretName` / `writeToken.existingSecretKey` | Same pattern; optional bearer token required on POST routes |
 | OpenAI API key (optional) | `openai.existingSecretName` / `openai.existingSecretKey` | Enables drafting new species with an OpenAI model. Name/key of a Secret — in practice the one a SealedSecret in your cluster overlay unseals to (`kubeseal` a Secret holding `apiKey`); empty name disables drafting and the species screens fall back to the manual form. `openai.model` optionally overrides the model |
 | ArgoCD git repo URL | `argocd/application.yaml` → `spec.source.repoURL` | Never committed; fill in on the cluster's copy of this manifest |
+| Postgres image (optional) | `postgresql.image` | CNPG `imageName`, e.g. `ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:...`; empty uses the operator's default. Pin it in the cluster values so Renovate can bump it |
 | External database DSN (only if `postgresql.enabled: false`) | `externalDatabase.existingSecretName` / `externalDatabase.existingSecretKey` | Secret must contain a full `PLANTATION_DATABASE_URL`-compatible DSN |
 
 ## Cluster prerequisites
