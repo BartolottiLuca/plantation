@@ -100,7 +100,7 @@ backup:
   # operator's default rather than something this chart pins. A newer pg_dump
   # reads older servers fine, so this must be >= the cluster's major version.
   # Raise it before the database, never after.
-  image: "postgres:18"
+  image: "postgres:19"
 resources:
   requests:
     cpu: 50m
